@@ -11,21 +11,21 @@ module Bench.Database.LSMTree.Internal.Run.Index.Compact (
 import           Control.DeepSeq (deepseq)
 import           Criterion.Main
 import           Data.Foldable (Foldable (..))
-import qualified Data.List.NonEmpty as NonEmpty
 import           Database.LSMTree.Generators
-import           Database.LSMTree.Internal.Run.Index.Compact
+import           Database.LSMTree.Internal.Run.Index.Compact as Index
 import           Database.LSMTree.Internal.Serialise (Serialise (serialise),
                      SerialisedKey)
 import           System.Random
 import           System.Random.Extras
+import           Test.QuickCheck (generate)
 
 -- See 'utxoNumPages'.
 benchmarks :: Benchmark
 benchmarks = bgroup "Bench.Database.LSMTree.Internal.Run.Index.Compact" [
       bgroup "searches" [
-          env (searchEnv 0  100 2_500_000 1_000_000) $ \ ~(ci, ks) ->
+          env (searchEnv 0  2_500_000 1_000_000) $ \ ~(ci, ks) ->
             bench "searches with 0-bit  rfprec" $ whnf (searches ci) ks
-        , env (searchEnv 16 100 2_500_000 1_000_000) $ \ ~(ci, ks) ->
+        , env (searchEnv 16 2_500_000 1_000_000) $ \ ~(ci, ks) ->
             bench "searches with 16-bit rfprec" $ whnf (searches ci) ks
         ]
     , bgroup "construction" [
@@ -39,12 +39,11 @@ benchmarks = bgroup "Bench.Database.LSMTree.Internal.Run.Index.Compact" [
 -- | Input environment for benchmarking 'searches'.
 searchEnv ::
      RFPrecision -- ^ Range-finder bit-precision
-  -> ChunkSize
   -> Int         -- ^ Number of pages
   -> Int         -- ^ Number of searches
   -> IO (CompactIndex, [SerialisedKey])
-searchEnv fpr csize npages nsearches = do
-    ci <- constructCompactIndex csize <$> constructionEnv fpr npages
+searchEnv rfprec npages nsearches = do
+    ci <- constructCompactIndex 100 <$> constructionEnv rfprec npages
     stdgen  <- newStdGen
     let ks = serialise <$> uniformWithReplacement @UTxOKey stdgen nsearches
     pure (ci, ks)
@@ -60,17 +59,18 @@ searches ci ks = foldl' (\acc k -> search k ci `deepseq` acc) () ks
 constructionEnv ::
      RFPrecision -- ^ Range-finder bit-precision
   -> Int         -- ^ Number of pages
-  -> IO (Pages SerialisedKey)
+  -> IO (RFPrecision, [Index.Page])
 constructionEnv rfprec n = do
     stdgen <- newStdGen
     let ks = uniformWithoutReplacement @UTxOKey stdgen (2 * n)
-    pure $ serialise <$> mkPages rfprec (NonEmpty.fromList ks)
+    ps <- generate (mkPages 0 (error "unused in constructionEnv") rfprec ks)
+    pure (rfprec, fromPages (getPages ps))
 
 -- | Used for benchmarking the incremental construction of a 'CompactIndex'.
 constructCompactIndex ::
      ChunkSize
-  -> Pages SerialisedKey -- ^ Pages to add in succession
+  -> (RFPrecision, [Index.Page]) -- ^ Pages to add in succession
   -> CompactIndex
-constructCompactIndex (ChunkSize csize) (Pages (RFPrecision rfprec) ks) =
+constructCompactIndex (ChunkSize csize) (RFPrecision rfprec, ps) =
     -- under the hood, 'fromList' uses the incremental construction interface
-    fromList rfprec csize ks
+    fromList rfprec csize ps

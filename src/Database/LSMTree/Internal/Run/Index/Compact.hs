@@ -20,12 +20,15 @@ module Database.LSMTree.Internal.Run.Index.Compact (
   , rangeFinderPrecisionBounds
   , suggestRangeFinderPrecision
     -- * Queries
+  , SearchResult (..)
+  , toPageSpan
   , search
   , countClashes
   , hasClashes
   , sizeInPages
     -- * Construction
     -- $construction-invariants
+  , Page (..)
   , fromList
     -- ** Incremental
     -- $incremental
@@ -39,6 +42,7 @@ module Database.LSMTree.Internal.Run.Index.Compact (
   , fromChunks
   ) where
 
+import           Control.Exception (assert)
 import           Control.Monad (forM_, when)
 import           Control.Monad.ST
 import           Data.Bit
@@ -173,6 +177,19 @@ suggestRangeFinderPrecision maxPages =
   Queries
 -------------------------------------------------------------------------------}
 
+data SearchResult =
+    NoResult
+  | SinglePage Int
+  -- | @'Multipage' s e@: the value is larger than a page, starts on page s, and
+  -- ends on page e.
+  | MultiPage Int Int
+  deriving (Show, Eq)
+
+toPageSpan :: SearchResult -> Maybe (Int, Int)
+toPageSpan NoResult        = Nothing
+toPageSpan (SinglePage i)  = Just (i, i)
+toPageSpan (MultiPage i j) = assert (i < j) $ Just (i, j)
+
 -- | Given a search key, find the number of the disk page that /might/ contain
 -- this key.
 --
@@ -181,7 +198,7 @@ suggestRangeFinderPrecision maxPages =
 --
 -- TODO: optimisation ideas: we should be able to get it all unboxed,
 -- non-allocating and without unnecessary bounds checking.
-search :: SerialisedKey -> CompactIndex -> Maybe Int
+search :: SerialisedKey -> CompactIndex -> SearchResult
 search k CompactIndex{..} =
     let !rfbits   = fromIntegral $ topBits16 ciRangeFinderPrecision k
         !lb       = fromIntegral $ ciRangeFinder VU.! rfbits
@@ -202,28 +219,76 @@ search k CompactIndex{..} =
     in
       if pageNr < 0 then
         -- The search key is smaller than the minimum key of the first page.
-        Nothing
+        NoResult
       else
         -- Consult the tie-breaker index, if necessary.
-        breakTies pageNr (unBit $ ciClashes VU.! pageNr)
+        breakTies
+          pageNr
+          (unBit $ ciClashes VU.! pageNr)
+          (IntMap.lookup pageNr ciTieBreaker)
   where
+    clashesLu :: Int -> Bool
+    clashesLu pageNr = unBit $ ciClashes VU.! pageNr
+
+    tieBreakerLu :: Int -> Maybe SerialisedKey
+    tieBreakerLu pageNr = IntMap.lookup pageNr ciTieBreaker
+
     -- TODO: optimisation ideas: should we get rid of the recursive function? We
     -- should look at the GHC core to see if we can improve this.
-    breakTies :: Int -> Bool -> Maybe Int
-    breakTies pageNr clash
-      -- Clash! The page we're currently looking at has a full minimum key that
-      -- is smaller than our search key, so we're done.
+    breakTies :: Int -> Bool -> Maybe SerialisedKey -> SearchResult
+    breakTies pageNr clash lu
+      -- Clash!
       | clash
-      , ciTieBreaker IntMap.! pageNr <= k
-      = Just pageNr
-      -- Clash! The page we're currently looking at has a full minimum key that
-      -- is strictly larger than our search key, so we have to look at the page
-      -- before it.
-      | clash
-      = breakTies (pageNr - 1) (unBit $ ciClashes VU.! (pageNr - 1))
+      = case lu of
+          -- | A clash with a tie breaker
+          Just k'
+            -- The page we're currently looking at has a full minimum key that
+            -- is smaller than our search key, so we're done.
+            | k' <= k
+            -> SinglePage pageNr
+            -- The page we're currently looking at has a full minimum key that
+            -- is strictly larger than our search key, so we have to look at the
+            -- page before it.
+            | otherwise
+            -> breakTies pageNr' (clashesLu pageNr') (tieBreakerLu pageNr')
+          -- A clash without a tie-breaker signals that we're currently seeing a
+          -- larger-than-page value. We do a linear search to find the beginning
+          -- of the larger-than-page value.
+          Nothing
+            -> either id (`MultiPage` pageNr) (largerThanPage pageNr')
       -- No clash! We have our page number.
       | otherwise
-      = Just pageNr
+      = SinglePage pageNr
+      where pageNr' = pageNr - 1
+
+    -- TODO: optimisation ideas: should we get rid of the recursive function? We
+    -- should look at the GHC core to see if we can improve this.
+    largerThanPage :: Int -> Either SearchResult Int
+    largerThanPage pageNr
+      -- Clash!
+      | clashesLu pageNr
+      = case tieBreakerLu pageNr of
+          -- A clash without a tie-breaker signals that the beginning of the
+          -- larger-than-page value is not in the current page.
+          Nothing
+            -> largerThanPage pageNr'
+          -- A clash with a tie-breaker
+          Just k'
+            -- | The tie breaks in favour of the larger-than-page value that we
+            -- were considering, and the larger-than-page value starts in the
+            -- current page.
+            | k' <= k
+            -> Right pageNr
+            -- | The larger-than-page value that we were looking is strictly
+            -- larer than our search key, so we revert to consulting the tie
+            -- breaker index if necessary.
+            | otherwise
+            -> Left $ breakTies pageNr' (clashesLu pageNr') (tieBreakerLu pageNr')
+      | otherwise
+      -- No clash! The larger-than-page value starts here.
+      = Right pageNr
+      where pageNr' = pageNr - 1
+
 
 countClashes :: CompactIndex -> Int
 countClashes = IntMap.size . ciTieBreaker
@@ -243,10 +308,6 @@ sizeInPages = VU.length . ciPrimary
   Constructing a compact index can go wrong, unless the following conditions are
   met:
 
-  * /Non-empty/: a compact index can not be empty. A mutable compact index can
-    be empty at first, but at least one page should be appended before it is
-    finalised.
-
   * /Sorted/: pages must be appended in sorted order according to the keys they
     contain.
 
@@ -259,12 +320,12 @@ sizeInPages = VU.length . ciPrimary
 -}
 
 -- | One-shot construction.
-fromList :: Int -> Int -> [(SerialisedKey, SerialisedKey)] -> CompactIndex
-fromList rfprec maxcsize ks = runST $ do
+fromList :: Int -> Int -> [Page] -> CompactIndex
+fromList rfprec maxcsize ps = runST $ do
     mci <- new rfprec maxcsize
-    cs <- mapM (`append` mci) ks
+    cs <- mapM (`append` mci) ps
     (c, fc) <- unsafeEnd mci
-    pure (fromChunks (catMaybes cs ++ [c]) fc)
+    pure (fromChunks (concat cs ++ [c]) fc)
 
 {- $incremental #incremental#
 
@@ -330,53 +391,112 @@ new rfprec maxcsize = MCompactIndex
     <*> newSTRef SNothing
     <*> newSTRef SNothing
 
--- | Append a new page entry (defined by the minimum and maximum key on the page)
--- to a mutable compact index.
+-- | Min\/max key-info for pages
+data Page =
+    -- | There is only one key on this page
+    OneKey SerialisedKey
+    -- | There are more than one keys on this page
+  | ManyKeys SerialisedKey SerialisedKey
+    -- | There is only one key in this page, and it's value does not fit within
+    -- a single page.
+  | LargerThanPage SerialisedKey Word32 -- ^ Number of overflow pages
+
+minMax :: Page -> (SerialisedKey, SerialisedKey)
+minMax = \case
+    OneKey k           -> (k, k)
+    ManyKeys k1 k2     -> (k1, k2)
+    LargerThanPage k _ -> (k, k)
+
+-- | Append a new page entry to a mutable compact index.
 --
 -- INVARIANTS: see [construction invariants](#construction-invariants).
-append :: (SerialisedKey, SerialisedKey) -> MCompactIndex s -> ST s (Maybe Chunk)
-append (minKey, maxKey) MCompactIndex{..} = do
+append :: forall s. Page -> MCompactIndex s -> ST s [Chunk]
+append page MCompactIndex{..} = do
     pageNr <- readSTRef mciCurrentPageNumber
-    writeSTRef mciCurrentPageNumber $! pageNr + 1
-
-    -- Yield a chunk and start a new one if the current chunk is already full.
     let ix = pageNr `mod` mciMaxChunkSize
-    res <-
-      if ix == 0 && pageNr > 0 then do -- The current chunk is full
-        cPrimary <- VU.unsafeFreeze =<< readSTRef mciPrimary
-        (writeSTRef mciPrimary $!) =<< VUM.new mciMaxChunkSize
-        cClashes <- VU.unsafeFreeze =<< readSTRef mciClashes
-        (writeSTRef mciClashes $!) =<< VUM.new mciMaxChunkSize
-        pure $ Just (Chunk{..})
-      else -- the current chunk is not yet full
-        pure Nothing
-
-    -- Fill range-finder vector
-    lastMinRfbits <- readSTRef mciLastMinRfbits
-    let lb = smaybe NoBound (\i -> Bound (fromIntegral i) Exclusive) lastMinRfbits
-        ub = Bound (fromIntegral minRfbits) Inclusive
-        x  = fromIntegral pageNr
-    writeRange mciRangeFinder lb ub x
-    writeSTRef mciLastMinRfbits $! SJust minRfbits
-
-    -- Fill primary vector
-    readSTRef mciPrimary >>= \vum -> VUM.write vum ix minPrimbits
-
-    -- Fill clash vector and tie-breaker map
-    lastMaxPrimbits <- readSTRef mciLastMaxPrimbits
-    let clash = lastMaxPrimbits == SJust minPrimbits
-    readSTRef mciClashes >>= \vum -> VUM.write vum ix (Bit clash)
-    when clash $ modifySTRef' mciTieBreaker (IntMap.insert pageNr minKey)
-    writeSTRef mciLastMaxPrimbits $! SJust maxPrimbits
-
-    pure res
+    goAppend pageNr ix
   where
-      minRfbits :: Word16
-      minRfbits = topBits16 mciRangeFinderPrecision minKey
+    (minKey, maxKey) = minMax page
 
-      minPrimbits, maxPrimbits :: Word32
-      minPrimbits = sliceBits32 mciRangeFinderPrecision minKey
-      maxPrimbits = sliceBits32 mciRangeFinderPrecision maxKey
+    minRfbits :: Word16
+    minRfbits = topBits16 mciRangeFinderPrecision minKey
+
+    minPrimbits, maxPrimbits :: Word32
+    minPrimbits = sliceBits32 mciRangeFinderPrecision minKey
+    maxPrimbits = sliceBits32 mciRangeFinderPrecision maxKey
+
+    -- | Yield a chunk and start a new one if the current chunk is already full.
+    yield :: ST s (Maybe Chunk)
+    yield = do
+        pageNr <- readSTRef mciCurrentPageNumber
+        if pageNr `mod` mciMaxChunkSize == 0 then do -- The current chunk is full
+          cPrimary <- VU.unsafeFreeze =<< readSTRef mciPrimary
+          writeSTRef mciPrimary =<< VUM.new mciMaxChunkSize -- Lazy on purpose
+          cClashes <- VU.unsafeFreeze =<< readSTRef mciClashes
+          writeSTRef mciClashes =<< VUM.new mciMaxChunkSize -- Lazy on purpose
+          pure $ Just (Chunk{..})
+        else -- the current chunk is not yet full
+          pure Nothing
+
+    -- | Fill primary and clash vectors for a larger-than-page value. Yields
+    -- chunks if necessary
+    overflows :: Int -> ST s [Maybe Chunk]
+    overflows incr
+      | incr <= 0 = pure []
+      | otherwise = do
+          pageNr <- readSTRef mciCurrentPageNumber
+          let ix = pageNr `mod` mciMaxChunkSize -- will be 0 in recursive calls
+              remInChunk = min incr (mciMaxChunkSize - ix)
+          readSTRef mciPrimary >>= \vum ->
+            writeRange vum (BoundInclusive ix) (BoundExclusive $ ix + remInChunk) minPrimbits
+          readSTRef mciClashes >>= \vum ->
+            writeRange vum (BoundInclusive ix) (BoundExclusive $ ix + remInChunk) (Bit True)
+          writeSTRef mciCurrentPageNumber $! pageNr + remInChunk
+          res <- yield
+          (res:) <$> overflows (incr - remInChunk)
+
+    -- | Meat of the function
+    goAppend ::
+         Int -- ^ Current /global/ page number
+      -> Int -- ^ Current /local/ page number (inside the current chunk)
+      -> ST s [Chunk]
+    goAppend pageNr ix = do
+        fillRangeFinder
+        writePrimary
+        writeClashes
+        writeSTRef mciCurrentPageNumber $! pageNr + 1
+        res <- yield
+        ress <- overflows (incr - 1) -- Wve already filled in the first page.
+        pure (catMaybes $ res : ress)
+      where
+        -- | How many index entries are going to be filled in
+        incr = fromIntegral $ case page of
+          LargerThanPage _ n -> 1 + n
+          _                  -> 1
+
+        -- | Fill range-finder vector
+        fillRangeFinder :: ST s ()
+        fillRangeFinder = do
+            lastMinRfbits <- readSTRef mciLastMinRfbits
+            let lb = smaybe NoBound (\i -> Bound (fromIntegral i) Exclusive) lastMinRfbits
+                ub = Bound (fromIntegral minRfbits) Inclusive
+                x  = fromIntegral pageNr
+            writeRange mciRangeFinder lb ub x
+            writeSTRef mciLastMinRfbits $! SJust minRfbits
+
+        -- | Set value in primary vector
+        writePrimary :: ST s ()
+        writePrimary =
+            readSTRef mciPrimary >>= \vum -> VUM.write vum ix minPrimbits
+
+        -- | Set value in clash vector and tie-breaker map
+        writeClashes :: ST s ()
+        writeClashes = do
+            lastMaxPrimbits <- readSTRef mciLastMaxPrimbits
+            let clash = lastMaxPrimbits == SJust minPrimbits
+            readSTRef mciClashes >>= \vum -> VUM.write vum ix (Bit clash)
+            when clash $ modifySTRef' mciTieBreaker (IntMap.insert pageNr minKey)
+            writeSTRef mciLastMaxPrimbits $! SJust maxPrimbits
 
 -- | Finalise incremental construction, yielding final chunks.
 --
@@ -387,12 +507,9 @@ append (minKey, maxKey) MCompactIndex{..} = do
 unsafeEnd :: MCompactIndex s -> ST s (Chunk, FinalChunk)
 unsafeEnd mci@MCompactIndex{..} = do
     pageNr <- readSTRef mciCurrentPageNumber
-    -- We're expecting at least one `append` to have happened, and that append
-    -- leaves at least 1 index entry in the current chunk.
-    let n | pageNr == 0 = error "unsafeEnd"
-          | otherwise   = (pageNr -1) `mod` mciMaxChunkSize + 1
-    cPrimary <- VU.unsafeFreeze . VUM.slice 0 n =<< readSTRef mciPrimary
-    cClashes <- VU.unsafeFreeze . VUM.slice 0 n =<< readSTRef mciClashes
+    let ix = pageNr `mod` mciMaxChunkSize
+    cPrimary <- VU.unsafeFreeze . VUM.slice 0 ix =<< readSTRef mciPrimary
+    cClashes <- VU.unsafeFreeze . VUM.slice 0 ix =<< readSTRef mciClashes
 
     -- We are not guaranteed to have seen all possible range-finder bit
     -- combinations, so we have to fill in the remainder of the rangerfinder

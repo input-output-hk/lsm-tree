@@ -154,11 +154,11 @@ prepLookupsEnv ::
   -> IO (Bloom SerialisedKey, CompactIndex, [SerialisedKey])
 prepLookupsEnv _ Config {..} = do
     (storedKeys, lookupKeys) <- lookupsEnv @k totalEntries npos nneg
-    let b   = Bloom.fromList fpr $ fmap serialise storedKeys
-        ps  = mkPages (RFPrecision rfprec) $ NonEmpty.fromList storedKeys
-        ps' = fmap serialise ps
-        psMinMax = (\p -> (minKey p, maxKey p)) <$> getPages ps'
-        ci = Index.fromList rfprec csize psMinMax
+    let b    = Bloom.fromList fpr $ fmap serialise storedKeys
+        ps   = mkPages (RFPrecision rfprec) $ NonEmpty.fromList storedKeys
+        ps'  = fmap serialise ps
+        ps'' = fromPage <$> getPages ps'
+        ci   = Index.fromList rfprec csize ps''
     pure (b, ci, fmap serialise lookupKeys)
   where
     totalEntries = npages * npageEntries
@@ -201,6 +201,15 @@ instance MinMax NonEmpty where
 newtype Page f k = Page { getContents :: f k }
   deriving stock (Show, Generic, Functor)
   deriving anyclass NFData
+
+-- | TODO: enable larger-than-page values
+fromPage :: Page NonEmpty SerialisedKey -> Index.Page
+fromPage (Page (k :| [])) = Index.OneKey k
+fromPage (Page (k :| ks)) = Index.ManyKeys k (last ks)
+
+{-------------------------------------------------------------------------------
+  Pages
+-------------------------------------------------------------------------------}
 
 -- | We model a disk page in a run as a pair of its minimum and maximum key.
 --
