@@ -41,6 +41,7 @@ library
     Database.LSMTree.Internal.Normal
     Database.LSMTree.Internal.Run
     Database.LSMTree.Internal.Run.BloomFilter
+    Database.LSMTree.Internal.Run.Construction
     Database.LSMTree.Internal.Run.Index.Compact
     Database.LSMTree.Internal.Serialise
     Database.LSMTree.Internal.WriteBuffer
