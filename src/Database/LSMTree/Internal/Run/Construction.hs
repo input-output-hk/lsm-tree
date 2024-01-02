@@ -18,7 +18,6 @@ module Database.LSMTree.Internal.Run.Construction (
   , end
     -- ** Add k\/op pairs with smaller-than-page values
   , AddOne
-  , AddOneWithBlob
   , add_insert
   , add_insertWithBlob
   , add_mupsert
@@ -26,7 +25,6 @@ module Database.LSMTree.Internal.Run.Construction (
     -- ** Add k\/op pairs with larger-than-page values
     -- $larger-than-page
   , AddMany
-  , AddManyWithBlob
   , add_insert_largerThanPage
   , add_insertWithBlob_largerThanPage
   , add_mupsert_largerThanPage
@@ -50,6 +48,8 @@ import           Database.LSMTree.Internal.Serialise (SerialisedKey)
 
 {-------------------------------------------------------------------------------
   Placeholder types
+
+  TODO: replace by non-placeholder types
 -------------------------------------------------------------------------------}
 
 -- | A string of bytes representing a value.
@@ -115,10 +115,6 @@ end = undefined
 
 -- | A function that can yield /at most one/ serialised page.
 type AddOne s = MRun s -> ST s (Maybe SerialisedPage, Maybe Index.Chunk)
--- | A function that can yield /at most one/ serialised page, and a new blob
--- reference.
-type AddOneWithBlob s =
-  MRun s -> ST s (Maybe SerialisedPage, Maybe Index.Chunk, BlobRef SerialisedBlob)
 
 -- Add a serialised Insert operation, which must fit on a single page (including
 -- per-entry and per-page overhead).
@@ -131,7 +127,7 @@ add_insertWithBlob ::
      SerialisedKey
   -> SerialisedValue
   -> BlobRef SerialisedBlob
-  -> AddOneWithBlob s
+  -> AddOne s
 add_insertWithBlob = undefined
 
 -- Add a serialised Mupsert operation, which must fit on a single page
@@ -162,10 +158,6 @@ add_delete = undefined
 
 -- | A function that can yield /at least one/ serialised page.
 type AddMany s = MRun s -> ST s (NonEmpty SerialisedPage, [Index.Chunk])
--- | A function that can yield /at least one/ serialised page, and a new blob
--- reference.
-type AddManyWithBlob s =
-  MRun s -> ST s (NonEmpty SerialisedPage, BlobRef SerialisedBlob, [Index.Chunk])
 
 -- | Like 'add_insert', but for a value that does not fit into a single page.
 --
@@ -186,7 +178,7 @@ add_insertWithBlob_largerThanPage ::
      SerialisedKey
   -> SerialisedValue
   -> BlobRef SerialisedBlob
-  -> AddManyWithBlob s
+  -> AddMany s
 add_insertWithBlob_largerThanPage = undefined
 
 -- | Like 'add_mupsert', but for a value that does not fit into a single page.
@@ -240,11 +232,10 @@ add_insert_largerThanPage' = undefined
 -- To be used /only/ when merging runs. See [Optimise for merging
 -- runs](#optimise-for-merge#).
 --
--- PRECONDITION: the blob reference offsets in the page /must/ match the blob
--- reference that is passed in, or an error will be thrown.
+-- Note: the blob reference inside the first serialised page will be overwritten
+-- by the blob reference argument to this function.
 add_insertWithBlob_largerThanPage' ::
      [SerialisedPage]
   -> BlobRef SerialisedBlob
-  -> AddManyWithBlob s
+  -> AddMany s
 add_insertWithBlob_largerThanPage' = undefined
-
