@@ -12,7 +12,7 @@ import           Control.DeepSeq (deepseq)
 import           Criterion.Main
 import           Data.Foldable (Foldable (..))
 import           Database.LSMTree.Generators
-import           Database.LSMTree.Internal.Run.Index.Compact as Index
+import           Database.LSMTree.Internal.Run.Index.Compact
 import           Database.LSMTree.Internal.Serialise (Serialise (serialise),
                      SerialisedKey)
 import           System.Random
@@ -59,7 +59,7 @@ searches ci ks = foldl' (\acc k -> search k ci `deepseq` acc) () ks
 constructionEnv ::
      RFPrecision -- ^ Range-finder bit-precision
   -> Int         -- ^ Number of pages
-  -> IO (RFPrecision, [Index.Page])
+  -> IO (RFPrecision, [Append])
 constructionEnv rfprec n = do
     stdgen <- newStdGen
     let ks = uniformWithoutReplacement @UTxOKey stdgen (2 * n)
@@ -69,7 +69,7 @@ constructionEnv rfprec n = do
 -- | Used for benchmarking the incremental construction of a 'CompactIndex'.
 constructCompactIndex ::
      ChunkSize
-  -> (RFPrecision, [Index.Page]) -- ^ Pages to add in succession
+  -> (RFPrecision, [Append]) -- ^ Pages to add in succession
   -> CompactIndex
 constructCompactIndex (ChunkSize csize) (RFPrecision rfprec, ps) =
     -- under the hood, 'fromList' uses the incremental construction interface

@@ -1,10 +1,8 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE DerivingVia         #-}
-{-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE TypeApplications    #-}
 
 -- | A compact fence-pointer index for uniformly distributed keys.
@@ -28,7 +26,7 @@ module Database.LSMTree.Internal.Run.Index.Compact (
   , sizeInPages
     -- * Construction
     -- $construction-invariants
-  , Page (..)
+  , Append (..)
   , fromList
     -- ** Incremental
     -- $incremental
@@ -320,7 +318,7 @@ sizeInPages = VU.length . ciPrimary
 -}
 
 -- | One-shot construction.
-fromList :: Int -> Int -> [Page] -> CompactIndex
+fromList :: Int -> Int -> [Append] -> CompactIndex
 fromList rfprec maxcsize ps = runST $ do
     mci <- new rfprec maxcsize
     cs <- mapM (`append` mci) ps
@@ -392,31 +390,29 @@ new rfprec maxcsize = MCompactIndex
     <*> newSTRef SNothing
 
 -- | Min\/max key-info for pages
-data Page =
-    -- | There is only one key on this page
-    OneKey SerialisedKey
-    -- | There are more than one keys on this page
-  | ManyKeys SerialisedKey SerialisedKey
+data Append =
+    -- | One or more keys are in this page, and their values fit within a single
+    -- page.
+    AppendSinglePage SerialisedKey SerialisedKey
     -- | There is only one key in this page, and it's value does not fit within
     -- a single page.
-  | LargerThanPage SerialisedKey Word32 -- ^ Number of overflow pages
+  | AppendMultiPage SerialisedKey Word32 -- ^ Number of overflow pages
 
-minMax :: Page -> (SerialisedKey, SerialisedKey)
+minMax :: Append -> (SerialisedKey, SerialisedKey)
 minMax = \case
-    OneKey k           -> (k, k)
-    ManyKeys k1 k2     -> (k1, k2)
-    LargerThanPage k _ -> (k, k)
+    AppendSinglePage k1 k2 -> (k1, k2)
+    AppendMultiPage  k _   -> (k, k)
 
 -- | Append a new page entry to a mutable compact index.
 --
 -- INVARIANTS: see [construction invariants](#construction-invariants).
-append :: forall s. Page -> MCompactIndex s -> ST s [Chunk]
-append page MCompactIndex{..} = do
+append :: forall s. Append -> MCompactIndex s -> ST s [Chunk]
+append app MCompactIndex{..} = do
     pageNr <- readSTRef mciCurrentPageNumber
     let ix = pageNr `mod` mciMaxChunkSize
     goAppend pageNr ix
   where
-    (minKey, maxKey) = minMax page
+    (minKey, maxKey) = minMax app
 
     minRfbits :: Word16
     minRfbits = topBits16 mciRangeFinderPrecision minKey
@@ -470,9 +466,9 @@ append page MCompactIndex{..} = do
         pure (catMaybes $ res : ress)
       where
         -- | How many index entries are going to be filled in
-        incr = fromIntegral $ case page of
-          LargerThanPage _ n -> 1 + n
-          _                  -> 1
+        incr = fromIntegral $ case app of
+          AppendMultiPage _ n -> 1 + n
+          _                   -> 1
 
         -- | Fill range-finder vector
         fillRangeFinder :: ST s ()

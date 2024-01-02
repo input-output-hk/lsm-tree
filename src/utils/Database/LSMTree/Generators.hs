@@ -40,9 +40,8 @@ import           Data.List (sort)
 import           Data.WideWord.Word256 (Word256 (..))
 import           Data.Word
 import           Database.LSMTree.Internal.Run.BloomFilter (Hashable (..))
-import           Database.LSMTree.Internal.Run.Index.Compact
-                     (rangeFinderPrecisionBounds, suggestRangeFinderPrecision)
-import qualified Database.LSMTree.Internal.Run.Index.Compact as Index
+import           Database.LSMTree.Internal.Run.Index.Compact (Append (..),
+                     rangeFinderPrecisionBounds, suggestRangeFinderPrecision)
 import           Database.LSMTree.Internal.Serialise (Serialise (..),
                      SerialisedKey, topBits16)
 import           Database.LSMTree.Util.Orphans ()
@@ -133,10 +132,10 @@ data Page k =
   deriving stock (Show, Generic, Functor)
   deriving anyclass NFData
 
-fromPage :: Page SerialisedKey -> Index.Page
-fromPage (OneKey k)           = Index.OneKey k
-fromPage (ManyKeys k1 k2)     = Index.ManyKeys k1 k2
-fromPage (LargerThanPage k n) = Index.LargerThanPage k n
+fromPage :: Page SerialisedKey -> Append
+fromPage (OneKey k)           = AppendSinglePage k k
+fromPage (ManyKeys k1 k2)     = AppendSinglePage k1 k2
+fromPage (LargerThanPage k n) = AppendMultiPage k n
 
 shrinkPage :: Arbitrary k => Page k -> [Page k]
 shrinkPage = \case
@@ -161,7 +160,7 @@ data Pages k = Pages {
   deriving stock (Show, Generic, Functor)
   deriving anyclass NFData
 
-fromPages :: Serialise k => [Page k] -> [Index.Page]
+fromPages :: Serialise k => [Page k] -> [Append]
 fromPages = fmap (fromPage . fmap serialise)
 
 instance (Arbitrary k, Ord k, Serialise k) => Arbitrary (Pages k) where

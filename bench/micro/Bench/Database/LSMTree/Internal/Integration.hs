@@ -26,7 +26,8 @@ import           Database.LSMTree.Generators (RFPrecision (..), UTxOKey)
 import           Database.LSMTree.Internal.Integration (prepLookups)
 import           Database.LSMTree.Internal.Run.BloomFilter (Bloom)
 import qualified Database.LSMTree.Internal.Run.BloomFilter as Bloom
-import           Database.LSMTree.Internal.Run.Index.Compact (CompactIndex)
+import           Database.LSMTree.Internal.Run.Index.Compact (Append (..),
+                     CompactIndex)
 import qualified Database.LSMTree.Internal.Run.Index.Compact as Index
 import           Database.LSMTree.Internal.Serialise (Serialise (..),
                      SerialisedKey, topBits16)
@@ -203,9 +204,9 @@ newtype Page f k = Page { getContents :: f k }
   deriving anyclass NFData
 
 -- | TODO: enable larger-than-page values
-fromPage :: Page NonEmpty SerialisedKey -> Index.Page
-fromPage (Page (k :| [])) = Index.OneKey k
-fromPage (Page (k :| ks)) = Index.ManyKeys k (last ks)
+fromPage :: Page NonEmpty SerialisedKey -> Append
+fromPage (Page (k :| [])) = AppendSinglePage k k
+fromPage (Page (k :| ks)) = AppendSinglePage k (last ks)
 
 {-------------------------------------------------------------------------------
   Pages

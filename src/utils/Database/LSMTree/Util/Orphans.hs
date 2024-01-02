@@ -18,8 +18,8 @@ import           Data.Primitive.ByteArray (ByteArray (..))
 import           Data.WideWord.Word256 (Word256 (..))
 import           Data.Word (Word64)
 import           Database.LSMTree.Internal.Run.BloomFilter (Hashable (..))
-import           Database.LSMTree.Internal.Run.Index.Compact (CompactIndex (..),
-                     Page (..), SearchResult (..))
+import           Database.LSMTree.Internal.Run.Index.Compact (Append (..),
+                     CompactIndex (..), SearchResult (..))
 import           Database.LSMTree.Internal.Serialise (Serialise (..),
                      SerialisedKey (..))
 import           GHC.Generics (Generic)
@@ -31,8 +31,8 @@ deriving instance NFData SerialisedKey
 deriving instance Generic SearchResult
 deriving instance NFData SearchResult
 
-deriving instance Generic Page
-deriving instance NFData Page
+deriving instance Generic Append
+deriving instance NFData Append
 
 deriving instance Generic CompactIndex
 deriving instance NFData CompactIndex
