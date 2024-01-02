@@ -2,6 +2,7 @@
 {-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE InstanceSigs               #-}
 {-# LANGUAGE MagicHash                  #-}
 {-# LANGUAGE StandaloneKindSignatures   #-}
 {-# LANGUAGE UnboxedTuples              #-}
@@ -15,9 +16,11 @@ module Database.LSMTree.Internal.Serialise (
   ) where
 
 import           Data.Bits (Bits (shiftL, shiftR))
+import qualified Data.ByteString.Short as SBS
 import           Data.ByteString.Short.Internal (ShortByteString (SBS))
 import           Data.Kind (Type)
 import           Data.Primitive.ByteArray (ByteArray (..))
+import           Database.LSMTree.Internal.Run.BloomFilter (Hashable (..))
 import           GHC.Exts
 import           GHC.Word
 
@@ -45,6 +48,12 @@ newtype SerialisedKey = SerialisedKey ByteArray
 instance Ord SerialisedKey where
   (SerialisedKey (ByteArray skey1#)) `compare` (SerialisedKey (ByteArray skey2#)) =
       SBS skey1# `compare` SBS skey2#
+
+-- TODO: optimisation
+instance Hashable SerialisedKey where
+  hashIO32 :: SerialisedKey -> Word32 -> IO Word32
+  hashIO32 (SerialisedKey (ByteArray ba#)) =
+    hashIO32 (SBS.fromShort $ SBS ba#)
 
 -- | @'topBits16' n k@ slices the first @n@ bits from the /top/ of the
 -- serialised key @k@. Returns the string of bits as a 'Word16'.
