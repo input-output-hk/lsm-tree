@@ -220,7 +220,7 @@ lookups ::
      (IOLike m, SomeSerialisationConstraint k, SomeSerialisationConstraint v)
   => [k]
   -> TableHandle m k v blob
-  -> m [LookupResult k v (BlobRef blob)]
+  -> m [LookupResult k v (BlobRef m blob)]
 lookups = undefined
 
 -- | Perform a range lookup.
@@ -230,7 +230,7 @@ rangeLookup ::
      (IOLike m, SomeSerialisationConstraint k, SomeSerialisationConstraint v)
   => Range k
   -> TableHandle m k v blob
-  -> m [RangeLookupResult k v (BlobRef blob)]
+  -> m [RangeLookupResult k v (BlobRef m blob)]
 rangeLookup = undefined
 
 -- | Perform a mixed batch of inserts and deletes.
@@ -282,12 +282,9 @@ deletes = updates . fmap (,Delete)
 -- 'Blob'.
 --
 -- Blob lookups can be performed concurrently from multiple Haskell threads.
---
--- TODO: remove table handle argument
 retrieveBlobs ::
      (IOLike m, SomeSerialisationConstraint blob)
-  => TableHandle m k v blob
-  -> [BlobRef blob]
+  => [BlobRef m blob]
   -> m [blob]
 retrieveBlobs = undefined
 

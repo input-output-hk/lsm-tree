@@ -1,5 +1,7 @@
 {-# LANGUAGE ConstraintKinds          #-}
+{-# LANGUAGE FlexibleContexts         #-}
 {-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE RecordWildCards          #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE StandaloneDeriving       #-}
@@ -45,7 +47,7 @@ module Database.LSMTree.ModelIO.Normal (
   , inserts
   , deletes
     -- ** Blobs
-  , Model.BlobRef
+  , BlobRef
   , retrieveBlobs
     -- * Snapshots
   , SnapshotName
@@ -71,6 +73,7 @@ import           Database.LSMTree.Normal (LookupResult (..),
                      RangeLookupResult (..), Update (..))
 import           GHC.IO.Exception (IOErrorType (..), IOException (..))
 import           System.IO.Error (alreadyExistsErrorType)
+import           Unsafe.Coerce (unsafeCoerce)
 
 {-------------------------------------------------------------------------------
   Tables
@@ -120,20 +123,20 @@ lookups ::
      (IOLike m, SomeSerialisationConstraint k, SomeSerialisationConstraint v)
   => [k]
   -> TableHandle m k v blob
-  -> m [LookupResult k v (Model.BlobRef blob)]
-lookups ks TableHandle {..} = atomically $
+  -> m [LookupResult k v (BlobRef m blob)]
+lookups ks th@TableHandle {..} = atomically $
     withModel "lookups" thSession thRef $ \tbl ->
-        return $ Model.lookups ks tbl
+        return $ liftBlobRefs th $ Model.lookups ks tbl
 
 -- | Perform a range lookup.
 rangeLookup ::
      (IOLike m, SomeSerialisationConstraint k, SomeSerialisationConstraint v)
   => Model.Range k
   -> TableHandle m k v blob
-  -> m [RangeLookupResult k v (Model.BlobRef blob)]
-rangeLookup r TableHandle {..} = atomically $
+  -> m [RangeLookupResult k v (BlobRef m blob)]
+rangeLookup r th@TableHandle {..} = atomically $
     withModel "rangeLookup" thSession thRef $ \tbl ->
-        return $ Model.rangeLookup r tbl
+        return $ liftBlobRefs th $ Model.rangeLookup r tbl
 
 -- | Perform a mixed batch of inserts and deletes.
 updates ::
@@ -173,15 +176,31 @@ deletes ::
   -> m ()
 deletes = updates . fmap (,Model.Delete)
 
+data BlobRef m blob = BlobRef {
+    brSession :: !(Session m)
+  , brRef     :: !(forall k v. TMVar m (Model.Table k v blob))
+  , brBlob    :: !(Model.BlobRef blob)
+  }
+
+liftBlobRefs ::
+     Functor f
+  => TableHandle m k v blob
+  -> [f (Model.BlobRef blob)]
+  -> [f (BlobRef m blob)]
+liftBlobRefs TableHandle{..} = fmap (fmap (BlobRef thSession (unsafeCoerce thRef)))
+
 -- | Perform a batch of blob retrievals.
 retrieveBlobs ::
-     (IOLike m, SomeSerialisationConstraint blob)
-  => TableHandle m k v blob
-  -> [Model.BlobRef blob]
+     forall m blob. (IOLike m, SomeSerialisationConstraint blob)
+  => [BlobRef m blob]
   -> m [blob]
-retrieveBlobs TableHandle {..} brefs = atomically $
-  withModel "retrieveBlobs" thSession thRef $ \tbl ->
-    return $ Model.retrieveBlobs tbl brefs
+retrieveBlobs brefs = atomically $ Model.retrieveBlobs <$> mapM guard brefs
+  where
+    -- Ensure that the session and table handle for each of the blob refs are
+    -- still open.
+    guard :: BlobRef m blob -> STM m (Model.BlobRef blob)
+    guard BlobRef{..} =
+      withModel "retrieveBlobs" brSession brRef $ \_tbl -> pure brBlob
 
 {-------------------------------------------------------------------------------
   Snapshots

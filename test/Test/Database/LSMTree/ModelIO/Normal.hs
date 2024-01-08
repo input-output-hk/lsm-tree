@@ -63,7 +63,7 @@ makeNewTable h ups = do
 -- Like 'partsOf' in @lens@ this uses state monad.
 retrieveBlobsTrav ::
   (IsTableHandle h, IOLike m, SomeSerialisationConstraint blob, Traversable t)
-  => h m k v blob -> t (BlobRef h blob) -> m (t blob)
+  => proxy h -> t (BlobRef h m blob) -> m (t blob)
 retrieveBlobsTrav hdl brefs = do
   blobs <- retrieveBlobs hdl (toList brefs)
   evalStateT (traverse (\_ -> state un) brefs) blobs
@@ -71,19 +71,23 @@ retrieveBlobsTrav hdl brefs = do
     un []     = error "invalid traversal"
     un (x:xs) = (x, xs)
 
-lookupsWithBlobs :: (IsTableHandle h, IOLike m,
-    SomeSerialisationConstraint k, SomeSerialisationConstraint v, SomeSerialisationConstraint blob) =>
-    h m k v blob -> [k] -> m [LookupResult k v blob]
+lookupsWithBlobs ::
+    forall h m k v blob. ( IsTableHandle h, IOLike m
+    , SomeSerialisationConstraint k, SomeSerialisationConstraint v, SomeSerialisationConstraint blob
+    )
+  => h m k v blob -> [k] -> m [LookupResult k v blob]
 lookupsWithBlobs hdl ks = do
     res <- lookups hdl ks
-    getCompose <$> retrieveBlobsTrav hdl (Compose res)
+    getCompose <$> retrieveBlobsTrav (Proxy @h) (Compose res)
 
-rangeLookupWithBlobs :: (IsTableHandle h, IOLike m,
-    SomeSerialisationConstraint k,  SomeSerialisationConstraint v, SomeSerialisationConstraint a)
-    => h m k v a -> Range k -> m [RangeLookupResult k v a]
+rangeLookupWithBlobs ::
+     forall h m k v blob. ( IsTableHandle h, IOLike m
+     , SomeSerialisationConstraint k, SomeSerialisationConstraint v, SomeSerialisationConstraint blob
+     )
+  => h m k v blob -> Range k -> m [RangeLookupResult k v blob]
 rangeLookupWithBlobs hdl r = do
     res <- rangeLookup hdl r
-    getCompose <$> retrieveBlobsTrav hdl (Compose res)
+    getCompose <$> retrieveBlobsTrav (Proxy @h) (Compose res)
 
 -------------------------------------------------------------------------------
 -- implement classic QC tests for basic k/v properties

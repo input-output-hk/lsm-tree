@@ -39,13 +39,13 @@ newtype WrapTableHandle h m k v blob = WrapTableHandle {
 
 type WrapBlobRef ::
      ((Type -> Type) -> Type -> Type -> Type -> Type)
-  -> Type -> Type
-newtype WrapBlobRef h blob = WrapBlobRef {
-    unwrapBlobRef :: SUT.Class.BlobRef h blob
+  -> (Type -> Type) -> Type -> Type
+newtype WrapBlobRef h m blob = WrapBlobRef {
+    unwrapBlobRef :: SUT.Class.BlobRef h m blob
   }
 
-deriving instance Show (SUT.Class.BlobRef h blob) => Show (WrapBlobRef h blob)
-deriving instance Eq (SUT.Class.BlobRef h blob) => Eq (WrapBlobRef h blob)
+deriving instance Show (SUT.Class.BlobRef h m blob) => Show (WrapBlobRef h m blob)
+deriving instance Eq (SUT.Class.BlobRef h m blob) => Eq (WrapBlobRef h m blob)
 
 type WrapBlob :: Type -> Type
 newtype WrapBlob blob = WrapBlob {

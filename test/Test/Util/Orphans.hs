@@ -77,12 +77,12 @@ type family RealizeIOSim s a where
   RealizeIOSim s (Real.MVar a)  = MVar (IOSim s) a
   -- lsm-tree
   RealizeIOSim s (TableHandle IO k v blob)       = TableHandle (IOSim s) k v blob
-  RealizeIOSim s (LookupResult k v blobref)      = LookupResult k v blobref
-  RealizeIOSim s (RangeLookupResult k v blobref) = RangeLookupResult k v blobref
-  RealizeIOSim s (BlobRef blob)                  = BlobRef blob
+  RealizeIOSim s (LookupResult k v blobref)      = LookupResult k v (RealizeIOSim s blobref)
+  RealizeIOSim s (RangeLookupResult k v blobref) = RangeLookupResult k v (RealizeIOSim s blobref)
+  RealizeIOSim s (BlobRef IO blob)               = BlobRef (IOSim s) blob
   -- Type family wrappers
   RealizeIOSim s (WrapTableHandle h IO k v blob) = WrapTableHandle h (IOSim s) k v blob
-  RealizeIOSim s (WrapBlobRef h blob)            = WrapBlobRef h blob
+  RealizeIOSim s (WrapBlobRef h IO blob)         = WrapBlobRef h (IOSim s) blob
   RealizeIOSim s (WrapBlob blob)                 = WrapBlob blob
   -- Congruence
   RealizeIOSim s (f a b) = f (RealizeIOSim s a) (RealizeIOSim s b)

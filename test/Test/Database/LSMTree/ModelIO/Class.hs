@@ -43,7 +43,7 @@ type IsTableHandle :: ((Type -> Type) -> Type -> Type -> Type -> Type) -> Constr
 class (IsSession (Session h)) => IsTableHandle h where
     type Session h :: (Type -> Type) -> Type
     type TableConfig h :: Type
-    type BlobRef h :: Type -> Type
+    type BlobRef h :: (Type -> Type) -> Type -> Type
 
     testTableConfig :: Proxy h -> TableConfig h
 
@@ -62,18 +62,18 @@ class (IsSession (Session h)) => IsTableHandle h where
             (IOLike m, SomeSerialisationConstraint k, SomeSerialisationConstraint v)
         => h m k v blob
         -> [k]
-        -> m [LookupResult k v (BlobRef h blob)]
+        -> m [LookupResult k v (BlobRef h m blob)]
 
     rangeLookup ::
             (IOLike m, SomeSerialisationConstraint k, SomeSerialisationConstraint v)
         => h m k v blob
         -> Range k
-        -> m [RangeLookupResult k v (BlobRef h blob)]
+        -> m [RangeLookupResult k v (BlobRef h m blob)]
 
     retrieveBlobs ::
             (IOLike m, SomeSerialisationConstraint blob)
-        => h m k v blob
-        -> [BlobRef h blob]
+        => proxy h
+        -> [BlobRef h m blob]
         -> m [blob]
 
     updates ::
@@ -160,7 +160,7 @@ instance IsTableHandle M.TableHandle where
     deletes = flip M.deletes
 
     rangeLookup = flip M.rangeLookup
-    retrieveBlobs = M.retrieveBlobs
+    retrieveBlobs _ = M.retrieveBlobs
 
     snapshot = M.snapshot
     open = M.open
@@ -188,7 +188,7 @@ instance IsTableHandle R.TableHandle where
     deletes = flip R.deletes
 
     rangeLookup = flip R.rangeLookup
-    retrieveBlobs = R.retrieveBlobs
+    retrieveBlobs _ = R.retrieveBlobs
 
     snapshot = R.snapshot
     open = R.open

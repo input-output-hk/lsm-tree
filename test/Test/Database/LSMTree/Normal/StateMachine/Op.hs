@@ -40,8 +40,8 @@ data Op a b where
   OpFromLeft           :: Op (Either a b) a
   OpFromRight          :: Op (Either a b) b
   OpComp               :: Op b c -> Op a b -> Op a c
-  OpLookupResults      :: Op [LookupResult k v (WrapBlobRef h blobref)] [WrapBlobRef h blobref]
-  OpRangeLookupResults :: Op [RangeLookupResult k v (WrapBlobRef h blobref)] [WrapBlobRef h blobref]
+  OpLookupResults      :: Op [LookupResult k v (WrapBlobRef h IO blobref)] [WrapBlobRef h IO blobref]
+  OpRangeLookupResults :: Op [RangeLookupResult k v (WrapBlobRef h IO blobref)] [WrapBlobRef h IO blobref]
 
 intOpId :: Op a b -> a -> Maybe b
 intOpId OpId                 = Just

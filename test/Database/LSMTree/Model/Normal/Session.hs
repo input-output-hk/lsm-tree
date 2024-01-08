@@ -11,6 +11,7 @@
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
 
@@ -24,6 +25,7 @@ module Database.LSMTree.Model.Normal.Session (
   , initModel
     -- ** Constraints
   , C
+  , C_
   , Model.SomeSerialisationConstraint (..)
     -- ** ModelT and ModelM
   , ModelT (..)
@@ -50,7 +52,7 @@ module Database.LSMTree.Model.Normal.Session (
   , inserts
   , deletes
     -- ** Blobs
-  , Model.BlobRef
+  , BlobRef
   , retrieveBlobs
     -- * Snapshots
   , SUT.SnapshotName
@@ -104,12 +106,10 @@ instance Show SomeTable where
 -- Constraints
 --
 
+type C_ a = (Show a, Eq a, Typeable a)
+
 -- | Common constraints for keys, values and blobs
-type C k v blob = (
-    Show k, Show v, Show blob
-  , Eq k, Eq v, Eq blob
-  , Typeable k, Typeable v, Typeable blob
-  )
+type C k v blob = (C_ k, C_ v, C_ blob)
 
 --
 -- ModelT and ModelM
@@ -244,10 +244,10 @@ lookups ::
      )
   => [k]
   -> TableHandle k v blob
-  -> m [Model.LookupResult k v (Model.BlobRef blob)]
+  -> m [Model.LookupResult k v (BlobRef blob)]
 lookups ks th = do
     table <- guardTableHandleIsOpen th
-    pure $ Model.lookups ks table
+    pure $ liftBlobRefs th $ Model.lookups ks table
 
 type RangeLookupResult k v blobref = Model.RangeLookupResult k v blobref
 
@@ -259,10 +259,10 @@ rangeLookup ::
      )
   => Model.Range k
   -> TableHandle k v blob
-  -> m [RangeLookupResult k v (Model.BlobRef blob)]
+  -> m [RangeLookupResult k v (BlobRef blob)]
 rangeLookup r th = do
     table <- guardTableHandleIsOpen th
-    pure $ Model.rangeLookup r table
+    pure $ liftBlobRefs th $ Model.rangeLookup r table
 
 updates ::
      ( MonadState Model m
@@ -308,17 +308,33 @@ deletes ::
   -> m ()
 deletes = updates . fmap (,Model.Delete)
 
+data BlobRef blob = BlobRef {
+    parentTable :: forall k v. TableHandle k v blob
+  , innerBlob   :: Model.BlobRef blob
+  }
+
+deriving instance Show blob => Show (BlobRef blob)
+
 retrieveBlobs ::
      ( MonadState Model m
      , MonadError Err m
      , Model.SomeSerialisationConstraint blob
      )
-  => TableHandle k v blob
-  -> [Model.BlobRef blob]
+  => [BlobRef blob]
   -> m [blob]
-retrieveBlobs th refs = do
-    table <- guardTableHandleIsOpen th
-    pure $ Model.retrieveBlobs table refs
+retrieveBlobs refs = Model.retrieveBlobs <$> mapM guard refs
+  where guard BlobRef{..} = guardTableHandleIsOpen parentTable >> pure innerBlob
+
+--
+-- Utility
+--
+
+liftBlobRefs ::
+     Functor f
+  => TableHandle k v blob
+  -> [f (Model.BlobRef blob)]
+  -> [f (BlobRef blob)]
+liftBlobRefs th = fmap (fmap (BlobRef (unsafeCoerce th)))
 
 {-------------------------------------------------------------------------------
   Snapshots

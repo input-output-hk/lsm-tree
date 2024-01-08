@@ -217,10 +217,9 @@ instance Eq (BlobRef blob) where
 -- Blob lookups can be performed concurrently from multiple Haskell threads.
 retrieveBlobs ::
      (SomeSerialisationConstraint blob)
-  => Table k v blob
-  -> [BlobRef blob]
+  => [BlobRef blob]
   -> [blob]
-retrieveBlobs _tbl refs = map getBlobFromRef refs
+retrieveBlobs refs = map getBlobFromRef refs
 
 {-------------------------------------------------------------------------------
   Snapshots
