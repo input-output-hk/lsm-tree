@@ -7,6 +7,8 @@
 {-# LANGUAGE StandaloneKindSignatures   #-}
 {-# LANGUAGE UnboxedTuples              #-}
 
+#include <MachDeps.h>
+
 -- | Temporary placeholders for serialisation.
 module Database.LSMTree.Internal.Serialise (
     Serialise (..)
@@ -68,19 +70,16 @@ instance Hashable SerialisedKey where
 -- TODO: optimisation ideas: use unsafe shift/byteswap primops, look at GHC
 -- core, find other opportunities for using primops.
 --
--- TODO: make this code work on a big-endian system
---
 topBits16 :: Int -> SerialisedKey -> Word16
 topBits16 n (SerialisedKey (ByteArray k#)) = shiftR w16 (16 - n)
   where
-    w16 = byteSwap16 $ toWord16 (indexWord8ArrayAsWord16# k# 0#)
+    w16 = toWord16 (indexWord8ArrayAsWord16# k# 0#)
 
-#if (__GLASGOW_HASKELL__ >= 900)
 toWord16 :: Word16# -> Word16
+#if WORDS_BIGENDIAN
 toWord16 = W16#
 #else
-toWord16 :: Word# -> Word16
-toWord16 x# = W16# (narrow16Word# x#)
+toWord16 x# = byteSwap16 (W16# x#)
 #endif
 
 -- | @'sliceBits32' off k@ slices from the serialised key @k@ a string of @32@
@@ -100,40 +99,22 @@ toWord16 x# = W16# (narrow16Word# x#)
 -- TODO: optimisation ideas: use unsafe shift/byteswap primops, look at GHC
 -- core, find other opportunities for using primops.
 --
--- TODO: make this code work on a big-endian system
---
 sliceBits32 :: Int -> SerialisedKey -> Word32
 sliceBits32 (I# off#) (SerialisedKey (ByteArray k#))
     | 0# <- r#
-    =   unalignedIndexWord8ArrayAsWord32BE k# q#
+    =   toWord32 (indexWord8ArrayAsWord32# k# q#)
     | otherwise
-    =   unalignedIndexWord8ArrayAsWord32BE k# q# `shiftL` r
-      + toWord32 (indexWord8Array# k# (q# +# 4#)) `shiftR` (8 - r)
+    =   toWord32 (indexWord8ArrayAsWord32# k# q#        ) `shiftL` r
+      + w8w32#   (indexWord8Array#         k# (q# +# 4#)) `shiftR` (8 - r)
   where
     !(# q#, r# #) = quotRemInt# off# 8#
     r             = I# r#
+    -- No need for byteswapping here
+    w8w32# x#     = W32# (wordToWord32# (word8ToWord# x#))
 
--- | Note: interprets bytes as if the array is in big-endian byte ordering
---
--- TODO: make this code work on a big-endian system
---
-unalignedIndexWord8ArrayAsWord32BE :: ByteArray# -> Int# -> Word32
-#if MIN_VERSION_GLASGOW_HASKELL(9,2,2,0)
-unalignedIndexWord8ArrayAsWord32BE ba# off# =
-    byteSwap32 $ W32# (indexWord8ArrayAsWord32# ba# off#)
+toWord32 :: Word32# -> Word32
+#if WORDS_BIGENDIAN
+toWord32 = W32#
 #else
--- Unaligned indexing is broken on GHC < 9.2.2
-unalignedIndexWord8ArrayAsWord32BE ba# off# =
-      toWord32 (indexWord8Array# ba#  off#       ) `shiftL` 24
-    + toWord32 (indexWord8Array# ba# (off# +# 1#)) `shiftL` 16
-    + toWord32 (indexWord8Array# ba# (off# +# 2#)) `shiftL` 8
-    + toWord32 (indexWord8Array# ba# (off# +# 3#))
-#endif
-
-#if (__GLASGOW_HASKELL__ >= 900)
-toWord32 :: Word8# -> Word32
-toWord32 x# = W32# (wordToWord32# (word8ToWord# x#))
-#else
-toWord32 :: Word# -> Word32
-toWord32 x# = W32# (narrow32Word# x#)
+toWord32 x# = byteSwap32 (W32# x#)
 #endif

@@ -11,7 +11,7 @@ copyright:          2023 Input Output Global Inc (IOG)
 category:           Database
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
-tested-with:        GHC ==8.10 || ==9.2 || ==9.4 || ==9.6
+tested-with:        GHC ==9.2 || ==9.4 || ==9.6
 extra-source-files:
   bloomfilter/cbits/lookup3.c
   bloomfilter/cbits/lookup3.h
@@ -48,7 +48,7 @@ library
     Database.LSMTree.Normal
 
   build-depends:
-    , base                  >=4.14  && <4.19
+    , base                  >=4.16  && <4.19
     , bitvec                ^>=1.1
     , bytestring
     , containers
@@ -139,7 +139,7 @@ test-suite lsm-tree-test
     Test.Util.TypeFamilyWrappers
 
   build-depends:
-    , base                                 >=4.14 && <4.19
+    , base                                 >=4.16 && <4.19
     , bytestring
     , constraints
     , containers
@@ -213,7 +213,7 @@ test-suite kmerge-test
   hs-source-dirs:   test
   main-is:          kmerge-test.hs
   build-depends:
-    , base              >=4.14 && <4.19
+    , base              >=4.16 && <4.19
     , deepseq
     , heaps
     , lsm-tree:kmerge
@@ -231,7 +231,7 @@ test-suite map-range-test
   hs-source-dirs:   test
   main-is:          map-range-test.hs
   build-depends:
-    , base              >=4.14 && <4.19
+    , base              >=4.16 && <4.19
     , bytestring
     , containers
     , lsm-tree
