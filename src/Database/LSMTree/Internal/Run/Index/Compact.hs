@@ -44,10 +44,10 @@ import           Control.Exception (assert)
 import           Control.Monad (forM_, when)
 import           Control.Monad.ST
 import           Data.Bit
+import           Data.Foldable (toList)
 import           Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import           Data.Map.Range (Bound (..), Clusive (Exclusive, Inclusive))
-import           Data.Maybe (catMaybes)
 import           Data.STRef.Strict
 import qualified Data.Vector.Algorithms.Search as VA
 import qualified Data.Vector.Unboxed as VU
@@ -319,11 +319,11 @@ sizeInPages = VU.length . ciPrimary
 
 -- | One-shot construction.
 fromList :: Int -> Int -> [Append] -> CompactIndex
-fromList rfprec maxcsize ps = runST $ do
+fromList rfprec maxcsize apps = runST $ do
     mci <- new rfprec maxcsize
-    cs <- mapM (`append` mci) ps
+    cs <- mapM (`append` mci) apps
     (c, fc) <- unsafeEnd mci
-    pure (fromChunks (concat cs ++ [c]) fc)
+    pure (fromChunks (concat cs ++ toList c) fc)
 
 {- $incremental #incremental#
 
@@ -422,21 +422,24 @@ append app MCompactIndex{..} = do
     maxPrimbits = sliceBits32 mciRangeFinderPrecision maxKey
 
     -- | Yield a chunk and start a new one if the current chunk is already full.
+    --
+    -- TODO(optimisation): yield will eagerly allocate new mutable vectors, but
+    -- maybe that should be done lazily.
     yield :: ST s (Maybe Chunk)
     yield = do
         pageNr <- readSTRef mciCurrentPageNumber
         if pageNr `mod` mciMaxChunkSize == 0 then do -- The current chunk is full
           cPrimary <- VU.unsafeFreeze =<< readSTRef mciPrimary
-          writeSTRef mciPrimary =<< VUM.new mciMaxChunkSize -- Lazy on purpose
+          (writeSTRef mciPrimary $!) =<< VUM.new mciMaxChunkSize
           cClashes <- VU.unsafeFreeze =<< readSTRef mciClashes
-          writeSTRef mciClashes =<< VUM.new mciMaxChunkSize -- Lazy on purpose
+          (writeSTRef mciClashes $!) =<< VUM.new mciMaxChunkSize
           pure $ Just (Chunk{..})
         else -- the current chunk is not yet full
           pure Nothing
 
     -- | Fill primary and clash vectors for a larger-than-page value. Yields
     -- chunks if necessary
-    overflows :: Int -> ST s [Maybe Chunk]
+    overflows :: Int -> ST s [Chunk]
     overflows incr
       | incr <= 0 = pure []
       | otherwise = do
@@ -449,7 +452,7 @@ append app MCompactIndex{..} = do
             writeRange vum (BoundInclusive ix) (BoundExclusive $ ix + remInChunk) (Bit True)
           writeSTRef mciCurrentPageNumber $! pageNr + remInChunk
           res <- yield
-          (res:) <$> overflows (incr - remInChunk)
+          maybe id (:) res <$> overflows (incr - remInChunk)
 
     -- | Meat of the function
     goAppend ::
@@ -463,7 +466,7 @@ append app MCompactIndex{..} = do
         writeSTRef mciCurrentPageNumber $! pageNr + 1
         res <- yield
         ress <- overflows (incr - 1) -- Wve already filled in the first page.
-        pure (catMaybes $ res : ress)
+        pure (maybe id (:) res ress)
       where
         -- | How many index entries are going to be filled in
         incr = fromIntegral $ case app of
@@ -500,12 +503,16 @@ append app MCompactIndex{..} = do
 -- 'unsafeEnd'.
 --
 -- INVARIANTS: see [construction invariants](#construction-invariants).
-unsafeEnd :: MCompactIndex s -> ST s (Chunk, FinalChunk)
+unsafeEnd :: MCompactIndex s -> ST s (Maybe Chunk, FinalChunk)
 unsafeEnd mci@MCompactIndex{..} = do
     pageNr <- readSTRef mciCurrentPageNumber
     let ix = pageNr `mod` mciMaxChunkSize
-    cPrimary <- VU.unsafeFreeze . VUM.slice 0 ix =<< readSTRef mciPrimary
-    cClashes <- VU.unsafeFreeze . VUM.slice 0 ix =<< readSTRef mciClashes
+
+    -- Only slice out a chunk if there are entries in the chunk
+    mchunk <- if ix == 0 then pure Nothing else do
+      cPrimary <- VU.unsafeFreeze . VUM.slice 0 ix =<< readSTRef mciPrimary
+      cClashes <- VU.unsafeFreeze . VUM.slice 0 ix =<< readSTRef mciClashes
+      pure $ Just Chunk{..}
 
     -- We are not guaranteed to have seen all possible range-finder bit
     -- combinations, so we have to fill in the remainder of the rangerfinder
@@ -515,7 +522,7 @@ unsafeEnd mci@MCompactIndex{..} = do
     let fcRangeFinderPrecision = mciRangeFinderPrecision
     fcTieBreaker <- readSTRef mciTieBreaker
 
-    pure (Chunk {..}, FinalChunk {..})
+    pure (mchunk, FinalChunk {..})
 
 -- | Fill the remainder of the range-finder vector.
 fillRangeFinderToEnd :: MCompactIndex s -> ST s ()
