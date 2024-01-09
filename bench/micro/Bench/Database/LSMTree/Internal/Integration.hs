@@ -26,7 +26,8 @@ import           Database.LSMTree.Generators (RFPrecision (..), UTxOKey)
 import           Database.LSMTree.Internal.Integration (prepLookups)
 import           Database.LSMTree.Internal.Run.BloomFilter (Bloom)
 import qualified Database.LSMTree.Internal.Run.BloomFilter as Bloom
-import           Database.LSMTree.Internal.Run.Index.Compact (CompactIndex)
+import           Database.LSMTree.Internal.Run.Index.Compact (Append (..),
+                     CompactIndex)
 import qualified Database.LSMTree.Internal.Run.Index.Compact as Index
 import           Database.LSMTree.Internal.Serialise (Serialise (..),
                      SerialisedKey, topBits16)
@@ -154,11 +155,11 @@ prepLookupsEnv ::
   -> IO (Bloom SerialisedKey, CompactIndex, [SerialisedKey])
 prepLookupsEnv _ Config {..} = do
     (storedKeys, lookupKeys) <- lookupsEnv @k totalEntries npos nneg
-    let b   = Bloom.fromList fpr $ fmap serialise storedKeys
-        ps  = mkPages (RFPrecision rfprec) $ NonEmpty.fromList storedKeys
-        ps' = fmap serialise ps
-        psMinMax = (\p -> (minKey p, maxKey p)) <$> getPages ps'
-        ci = Index.fromList rfprec csize psMinMax
+    let b    = Bloom.fromList fpr $ fmap serialise storedKeys
+        ps   = mkPages (RFPrecision rfprec) $ NonEmpty.fromList storedKeys
+        ps'  = fmap serialise ps
+        ps'' = fromPage <$> getPages ps'
+        ci   = Index.fromList rfprec csize ps''
     pure (b, ci, fmap serialise lookupKeys)
   where
     totalEntries = npages * npageEntries
@@ -201,6 +202,15 @@ instance MinMax NonEmpty where
 newtype Page f k = Page { getContents :: f k }
   deriving stock (Show, Generic, Functor)
   deriving anyclass NFData
+
+-- | TODO: enable larger-than-page values
+fromPage :: Page NonEmpty SerialisedKey -> Append
+fromPage (Page (k :| [])) = AppendSinglePage k k
+fromPage (Page (k :| ks)) = AppendSinglePage k (last ks)
+
+{-------------------------------------------------------------------------------
+  Pages
+-------------------------------------------------------------------------------}
 
 -- | We model a disk page in a run as a pair of its minimum and maximum key.
 --

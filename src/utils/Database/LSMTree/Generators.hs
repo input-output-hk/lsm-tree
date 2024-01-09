@@ -3,8 +3,11 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{- HLINT ignore "Use camelCase" -}
 
 module Database.LSMTree.Generators (
     -- * WithSerialised
@@ -14,8 +17,15 @@ module Database.LSMTree.Generators (
     -- * Range-finder precision
   , RFPrecision (..)
   , rfprecInvariant
+    -- * Page
+  , Page (..)
+  , fromPage
+  , shrinkPage
     -- * Pages (non-partitioned)
   , Pages (..)
+  , fromPages
+  , shrinkPages
+  , genPages
   , mkPages
   , pagesInvariant
   , labelPages
@@ -27,19 +37,19 @@ module Database.LSMTree.Generators (
 import           Control.DeepSeq (NFData)
 import           Data.Containers.ListUtils (nubOrd)
 import           Data.List (sort)
-import           Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NonEmpty
 import           Data.WideWord.Word256 (Word256 (..))
+import           Data.Word
 import           Database.LSMTree.Internal.Run.BloomFilter (Hashable (..))
-import           Database.LSMTree.Internal.Run.Index.Compact
-                     (rangeFinderPrecisionBounds, suggestRangeFinderPrecision)
+import           Database.LSMTree.Internal.Run.Index.Compact (Append (..),
+                     rangeFinderPrecisionBounds, suggestRangeFinderPrecision)
 import           Database.LSMTree.Internal.Serialise (Serialise (..),
                      SerialisedKey, topBits16)
 import           Database.LSMTree.Util.Orphans ()
 import           GHC.Generics (Generic)
 import           System.Random (Uniform)
-import           Test.QuickCheck (Arbitrary (..), NonEmptyList (..), Property,
-                     chooseInt, scale, tabulate)
+import qualified Test.QuickCheck as QC
+import           Test.QuickCheck (Arbitrary (..), Gen, Property)
+import           Test.QuickCheck.Gen (genDouble)
 import           Text.Printf (printf)
 
 {-------------------------------------------------------------------------------
@@ -102,7 +112,7 @@ newtype RFPrecision = RFPrecision Int
   deriving anyclass NFData
 
 instance Arbitrary RFPrecision where
-  arbitrary = RFPrecision <$> chooseInt (rfprecLB, rfprecUB)
+  arbitrary = RFPrecision <$> QC.chooseInt (rfprecLB, rfprecUB)
     where (rfprecLB, rfprecUB) = rangeFinderPrecisionBounds
   shrink (RFPrecision x) =
       [RFPrecision x' | x' <- shrink x , rfprecInvariant (RFPrecision x')]
@@ -110,6 +120,29 @@ instance Arbitrary RFPrecision where
 rfprecInvariant :: RFPrecision -> Bool
 rfprecInvariant (RFPrecision x) = x >= rfprecLB && x <= rfprecUB
   where (rfprecLB, rfprecUB) = rangeFinderPrecisionBounds
+
+{-------------------------------------------------------------------------------
+  Page
+-------------------------------------------------------------------------------}
+
+data Page k =
+    OneKey k
+  | ManyKeys k k
+  | LargerThanPage k Word32
+  deriving stock (Show, Generic, Functor)
+  deriving anyclass NFData
+
+fromPage :: Page SerialisedKey -> Append
+fromPage (OneKey k)           = AppendSinglePage k k
+fromPage (ManyKeys k1 k2)     = AppendSinglePage k1 k2
+fromPage (LargerThanPage k n) = AppendMultiPage k n
+
+shrinkPage :: Arbitrary k => Page k -> [Page k]
+shrinkPage = \case
+    OneKey k           -> OneKey <$> shrink k
+    ManyKeys k1 k2     -> ManyKeys <$> shrink k1 <*> shrink k2
+    LargerThanPage k n -> [LargerThanPage k' n | k' <- shrink k]
+                       <> [LargerThanPage k n' | n' <- shrink n]
 
 {-------------------------------------------------------------------------------
   Pages (partitioned)
@@ -122,76 +155,116 @@ rfprecInvariant (RFPrecision x) = x >= rfprecLB && x <= rfprecUB
 -- bits. A run can not be empty, and a page can not be empty.
 data Pages k = Pages {
     getRangeFinderPrecision :: RFPrecision
-  , getPages                :: [(k, k)]
+  , getPages                :: [Page k]
   }
   deriving stock (Show, Generic, Functor)
   deriving anyclass NFData
 
+fromPages :: Serialise k => [Page k] -> [Append]
+fromPages = fmap (fromPage . fmap serialise)
+
 instance (Arbitrary k, Ord k, Serialise k) => Arbitrary (Pages k) where
-  arbitrary = mkPages <$>
-      arbitrary <*> (NonEmpty.fromList . getNonEmpty <$> scale (2*) arbitrary)
-  shrink (Pages rfprec ks) = [
-        Pages rfprec ks'
-      | ks' <- shrink ks, pagesInvariant (Pages rfprec ks')
-      ] <> [
-        Pages rfprec' ks
-      | rfprec' <- shrink rfprec, pagesInvariant (Pages rfprec' ks)
-      ]
+  arbitrary = genPages 0.01 (QC.choose (0, 100))
+  shrink = shrinkPages
+
+shrinkPages :: (Arbitrary k, Ord k, Serialise k) => Pages k -> [Pages k]
+shrinkPages (Pages rfprec ps) = [
+      Pages rfprec ps'
+    | ps' <- QC.shrinkList shrinkPage ps, pagesInvariant (Pages rfprec ps')
+    ] <> [
+      Pages rfprec' ps
+    | rfprec' <- shrink rfprec, pagesInvariant (Pages rfprec' ps)
+    ]
+
+genPages ::
+     (Arbitrary k, Ord k, Serialise k)
+  => Double -- ^ Probability of a value being larger-than-page
+  -> Gen Word32 -- ^ Number of overflow pages for a larger-than-page value
+  -> Gen (Pages k)
+genPages p genN = do
+    rfprec <- arbitrary
+    ks <- arbitrary
+    mkPages p genN rfprec ks
 
 mkPages ::
      forall k. (Ord k, Serialise k)
-  => RFPrecision
-  -> NonEmpty k
-  -> Pages k
-mkPages rfprec@(RFPrecision n) =
-    Pages rfprec . go . nubOrd . sort . NonEmpty.toList
+  => Double -- ^ Probability of a value being larger-than-page
+  -> Gen Word32 -- ^ Number of overflow pages for a larger-than-page value
+  -> RFPrecision
+  -> [k]
+  -> Gen (Pages k)
+mkPages p genN rfprec@(RFPrecision n) =
+    fmap (Pages rfprec) . go . nubOrd . sort
   where
-    go :: [k] -> [(k, k)]
-    go []          = []
-    go [k]         = [(k, k)]
+    go :: [k] -> Gen [Page k]
+    go []          = pure []
+    go [k]         = do b <- largerThanPage
+                        if b then pure . LargerThanPage k <$> genN else pure [OneKey k]
                    -- the min and max key are allowed to be the same
-    go  (k1:k2:ks) | topBits16 n (serialise k1) == topBits16 n (serialise k2)
-                   = (k1, k2) : go ks
-                   | otherwise
-                   = (k1, k1) : go (k2 : ks)
+    go  (k1:k2:ks) = do b <- largerThanPage
+                        if | b
+                           -> (:) <$> (LargerThanPage k1 <$> genN) <*> go (k2 : ks)
+                           | topBits16 n (serialise k1) == topBits16 n (serialise k2)
+                           -> (ManyKeys k1 k2 :) <$> go ks
+                           | otherwise
+                           -> (OneKey k1 :) <$>  go (k2 : ks)
+
+    largerThanPage :: Gen Bool
+    largerThanPage = genDouble >>= \x -> pure (x < p)
 
 pagesInvariant :: (Ord k, Serialise k) => Pages k -> Bool
-pagesInvariant (Pages (RFPrecision rfprec) ks) =
-       sort ks'   == ks'
-    && nubOrd ks' == ks'
-    && not (null ks)
-    && all partitioned ks
+pagesInvariant (Pages (RFPrecision rfprec) ps0) =
+       sort ks   == ks
+    && nubOrd ks == ks
+    && all partitioned ps0
   where
-    ks' = flatten ks
-    partitioned (kmin, kmax) =
-      topBits16 rfprec (serialise kmin) == topBits16 rfprec (serialise kmax)
+    ks = flatten ps0
+    partitioned = \case
+      OneKey _           -> True
+      ManyKeys k1 k2     -> topBits16 rfprec (serialise k1) == topBits16 rfprec (serialise k2)
+      LargerThanPage _ _ -> True
 
-    flatten :: Eq k => [(k, k)] -> [k]
+    flatten :: Eq k => [Page k] -> [k]
     flatten []            = []
                           -- the min and max key are allowed to be the same
-    flatten ((k1,k2):ks0) | k1 == k2  = k1      : flatten ks0
-                          | otherwise = k1 : k2 : flatten ks0
+    flatten (p:ps) = case p of
+      OneKey k           -> k : flatten ps
+      ManyKeys k1 k2     -> k1 : k2 : flatten ps
+      LargerThanPage k _ -> k : flatten ps
 
 labelPages :: Pages k -> (Property -> Property)
-labelPages (Pages (RFPrecision rfprec) ks) =
-      tabulate "RFPrecision: optimal" [show suggestedRfprec]
-    . tabulate "RFPrecision: actual" [show rfprec]
-    . tabulate "RFPrecision: |optimal-actual|" [show dist]
-    . tabulate "Number of pages" [showPowersOf10 npages]
+labelPages (Pages (RFPrecision rfprec) ps0) =
+      QC.tabulate "RFPrecision: optimal" [show suggestedRfprec]
+    . QC.tabulate "RFPrecision: actual" [show rfprec]
+    . QC.tabulate "RFPrecision: |optimal-actual|" [show dist]
+    . QC.tabulate "Number of pages" [showPowersOf10 npages]
+    . QC.tabulate "Number of 1-key pages" [showPowersOf10 n1]
+    . QC.tabulate "Number of many-key pages" [showPowersOf10 n2]
+    . QC.tabulate "Number of large-value pages" [showPowersOf10 n3]
   where
-    npages = length ks
+    npages = length ps0
     suggestedRfprec = suggestRangeFinderPrecision npages
     dist = abs (suggestedRfprec - rfprec)
 
     showPowersOf10 :: Int -> String
     showPowersOf10 n0
-      | n0 <= 0   = error "showPowersOf10"
+      | n0 <= 0   = "n == 0"
       | n0 == 1   = "n == 1"
       | otherwise = go n0 1
       where
         go n m | n < m'    = printf "%d < n < %d" m m'
                | otherwise = go n m'
                where m' = 10*m
+
+    (n1,n2,n3) = counts ps0
+
+    counts :: [Page k] -> (Int, Int, Int)
+    counts []     = (0, 0, 0)
+    counts (p:ps) = let (x, y, z) = counts ps
+                    in case p of
+                      OneKey{}         -> (x+1, y, z)
+                      ManyKeys{}       -> (x, y+1, z)
+                      LargerThanPage{} -> (x, y, z+1)
 
 {-------------------------------------------------------------------------------
   Chunking size
@@ -202,7 +275,7 @@ newtype ChunkSize = ChunkSize Int
   deriving newtype Num
 
 instance Arbitrary ChunkSize where
-  arbitrary = ChunkSize <$> chooseInt (chunkSizeLB, chunkSizeUB)
+  arbitrary = ChunkSize <$> QC.chooseInt (chunkSizeLB, chunkSizeUB)
   shrink (ChunkSize csize) = [
         ChunkSize csize'
       | csize' <- shrink csize

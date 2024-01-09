@@ -47,15 +47,15 @@ type Run fd = (fd, Bloom SerialisedKey, CompactIndex)
 --
 -- Note: results are grouped by key instead of file descriptor, because this
 -- means that results for a single key are close together.
-prepLookups :: [Run fd] -> [SerialisedKey] -> [(SerialisedKey, [(fd, Int)])]
+prepLookups :: [Run fd] -> [SerialisedKey] -> [(SerialisedKey, [(fd, (Int, Int))])]
 prepLookups runs ks = fmap f ks
   where f k = (k, prepLookupMany runs k)
 
-prepLookupMany :: [Run fd] -> SerialisedKey -> [(fd, Int)]
+prepLookupMany :: [Run fd] -> SerialisedKey -> [(fd, (Int, Int))]
 prepLookupMany runs k = mapMaybe f runs
   where f run@(fd,_,_) = (fd,) <$> prepLookupOne run k
 
-prepLookupOne :: Run fd -> SerialisedKey -> Maybe Int
+prepLookupOne :: Run fd -> SerialisedKey -> Maybe (Int, Int)
 prepLookupOne (_fd, b, fpix) k
-  | Bloom.elem k b = Index.search k fpix
+  | Bloom.elem k b = Index.toPageSpan $ Index.search k fpix
   | otherwise      = Nothing

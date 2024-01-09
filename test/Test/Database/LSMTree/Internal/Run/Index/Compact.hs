@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving  #-}
 {-# LANGUAGE TypeApplications    #-}
@@ -6,11 +7,14 @@
 
 module Test.Database.LSMTree.Internal.Run.Index.Compact (tests) where
 
-import           Data.Bifunctor (Bifunctor (bimap))
-import           Database.LSMTree.Generators (ChunkSize (..), Pages (..),
-                     RFPrecision (..), UTxOKey (..), WithSerialised (..),
-                     labelPages)
-import           Database.LSMTree.Internal.Run.Index.Compact
+import           Control.Monad.State.Strict
+import           Data.Foldable (Foldable (foldMap'))
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import           Database.LSMTree.Generators as Gen (ChunkSize (..), Page (..),
+                     Pages (..), RFPrecision (..), UTxOKey (..),
+                     WithSerialised (..), fromPages, labelPages)
+import           Database.LSMTree.Internal.Run.Index.Compact as Index
 import           Database.LSMTree.Internal.Serialise (Serialise (..))
 import           Test.QuickCheck
 import           Test.Tasty (TestTree, adjustOption, testGroup)
@@ -34,36 +38,72 @@ tests = testGroup "Test.Database.LSMTree.Internal.Run.Index.Compact" [
   Properties
 -------------------------------------------------------------------------------}
 
+deriving instance Eq CompactIndex
+deriving instance Show CompactIndex
+
+--
+-- Search
+--
+
+type CounterM a = State Int a
+
+evalCounterM :: CounterM a -> Int -> a
+evalCounterM = evalState
+
+incrCounter :: CounterM Int
+incrCounter = get >>= \c -> put (c+1) >> pure c
+
+plusCounter :: Int -> CounterM Int
+plusCounter n = get >>= \c -> put (c+n) >> pure c
+
 -- | After construction, searching for the minimum/maximum key of every page
 -- @pageNr@ returns the @pageNr@.
---
--- Example: @search minKey (fromList rfprec [(minKey, maxKey)]) == 0@.
 prop_searchMinMaxKeysAfterConstruction ::
-     Serialise k
+     forall k. (Serialise k, Show k, Ord k)
   => ChunkSize
   -> Pages k
   -> Property
 prop_searchMinMaxKeysAfterConstruction
   (ChunkSize csize)
-  pps@(Pages (RFPrecision rfprec) ks) =
+  ps0@(Pages (RFPrecision rfprec) ps1) =
       classify (hasClashes ci) "Compact index contains clashes"
-    $ labelPages pps
+    $ labelPages ps0
     $ counterexample (show ci)
-    $ counterexample (show idxs)
-    $ property $ all p idxs
+    $ real === model
   where
-    ci = fromList rfprec csize (fmap (bimap serialise serialise) ks)
+    model = evalCounterM (modelSearches ps1) 0
 
-    f idx (minKey, maxKey) =
-        ( idx
-        , search (serialise minKey) ci
-        , search (serialise maxKey) ci
-        )
+    modelSearches :: [Gen.Page k] -> CounterM (Map k SearchResult)
+    modelSearches []     = pure Map.empty
+    modelSearches (p:ps) = case p of
+        Gen.OneKey k       -> do
+          c <- incrCounter
+          Map.insert k (SinglePage c) <$> modelSearches ps
+        Gen.ManyKeys k1 k2 -> do
+          c <- incrCounter
+          Map.insert k1 (SinglePage c) . Map.insert k2 (SinglePage c) <$> modelSearches ps
+        Gen.LargerThanPage k n -> do
+          let incr = 1 + fromIntegral n
+          c <- plusCounter incr
+          if incr == 1 then
+            Map.insert k (SinglePage c) <$> modelSearches ps
+          else
+            Map.insert k (MultiPage c (c + fromIntegral n)) <$> modelSearches ps
 
-    idxs = zipWith f [0..] ks
+    real = foldMap' realSearch ps1
 
-    p (idx, x, y) =
-         Just idx == x && Just idx == y
+    ci = fromList rfprec csize (fromPages ps1)
+
+    realSearch :: Gen.Page k -> Map k SearchResult
+    realSearch = \case
+        Gen.OneKey k           -> Map.singleton k (search (serialise k) ci)
+        Gen.ManyKeys k1 k2     -> Map.fromList [ (k1, search (serialise k1) ci)
+                                               , (k2, search (serialise k2) ci)]
+        Gen.LargerThanPage k _ -> Map.singleton k (search (serialise k) ci)
+
+--
+-- Construction
+--
 
 prop_differentChunkSizesSameResults ::
      Serialise k
@@ -74,13 +114,10 @@ prop_differentChunkSizesSameResults ::
 prop_differentChunkSizesSameResults
   (ChunkSize csize1)
   (ChunkSize csize2)
-  pps@(Pages (RFPrecision rfprec) ks) =
+  pps@(Pages (RFPrecision rfprec) ps) =
       labelPages pps
     $ ci1 === ci2
   where
-    ksSerialised = fmap (bimap serialise serialise) ks
-    ci1          = fromList rfprec csize1 ksSerialised
-    ci2          = fromList rfprec csize2 ksSerialised
-
-deriving instance Eq CompactIndex
-deriving instance Show CompactIndex
+    ps' = fromPages ps
+    ci1 = fromList rfprec csize1 ps'
+    ci2 = fromList rfprec csize2 ps'
