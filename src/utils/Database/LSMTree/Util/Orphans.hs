@@ -1,9 +1,10 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleInstances  #-}
-{-# LANGUAGE NamedFieldPuns     #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveAnyClass             #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE StandaloneDeriving         #-}
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
@@ -17,24 +18,29 @@ import           Data.WideWord.Word256 (Word256 (..))
 import           Data.Word (Word64)
 import           Database.LSMTree.Internal.Run.BloomFilter (Hashable (..))
 import           Database.LSMTree.Internal.Run.Index.Compact (Append (..),
-                     CompactIndex (..), SearchResult (..))
+                     CompactIndex (..), PageNo (..), PageSpan (..),
+                     SearchResult (..))
 import           Database.LSMTree.Internal.Serialise (SerialisedKey (..))
 import           Database.LSMTree.Internal.Serialise.Class
 import           Database.LSMTree.Internal.Serialise.RawBytes
 import           GHC.Generics (Generic)
 import           System.Random (Uniform)
 
-deriving instance Generic SerialisedKey
-deriving instance NFData SerialisedKey
+deriving newtype instance NFData SerialisedKey
 
-deriving instance Generic SearchResult
-deriving instance NFData SearchResult
+deriving stock instance Generic SearchResult
+deriving anyclass instance NFData SearchResult
 
-deriving instance Generic Append
-deriving instance NFData Append
+deriving newtype instance NFData PageNo
 
-deriving instance Generic CompactIndex
-deriving instance NFData CompactIndex
+deriving stock instance Generic PageSpan
+deriving anyclass instance NFData PageSpan
+
+deriving stock instance Generic Append
+deriving anyclass instance NFData Append
+
+deriving stock instance Generic CompactIndex
+deriving anyclass instance NFData CompactIndex
 
 {-------------------------------------------------------------------------------
   Word256

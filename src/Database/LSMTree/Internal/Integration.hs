@@ -34,30 +34,30 @@ module Database.LSMTree.Internal.Integration (
   , prepLookups
   ) where
 
-import           Data.Maybe
+import           Data.Foldable (Foldable (..))
 import           Database.LSMTree.Internal.Run.BloomFilter (Bloom)
 import qualified Database.LSMTree.Internal.Run.BloomFilter as Bloom
-import           Database.LSMTree.Internal.Run.Index.Compact (CompactIndex)
+import           Database.LSMTree.Internal.Run.Index.Compact (CompactIndex,
+                     PageSpan)
 import qualified Database.LSMTree.Internal.Run.Index.Compact as Index
 import           Database.LSMTree.Internal.Serialise
 
+-- | TODO: placeholder type for a run, replace by actual type once implemented
 type Run fd = (fd, Bloom SerialisedKey, CompactIndex)
 
 -- | Prepare disk lookups by doing bloom filter queries and index searches.
 --
 -- Note: results are grouped by key instead of file descriptor, because this
 -- means that results for a single key are close together.
---
--- TODO: add a @PageNo@ newtype instead of using 'Int'.
-prepLookups :: [Run fd] -> [SerialisedKey] -> [(SerialisedKey, [(fd, (Int, Int))])]
-prepLookups runs ks = fmap f ks
-  where f k = (k, prepLookupMany runs k)
+prepLookups :: [Run fd] -> [SerialisedKey] -> [(SerialisedKey, (fd, PageSpan))]
+prepLookups runs ks =
+    [ (k, (fd, pspan))
+    | k <- ks
+    , r@(fd,_,_) <- runs
+    , pspan <- toList (prepLookup r k)
+    ]
 
-prepLookupMany :: [Run fd] -> SerialisedKey -> [(fd, (Int, Int))]
-prepLookupMany runs k = mapMaybe f runs
-  where f run@(fd,_,_) = (fd,) <$> prepLookupOne run k
-
-prepLookupOne :: Run fd -> SerialisedKey -> Maybe (Int, Int)
-prepLookupOne (_fd, b, fpix) k
+prepLookup :: Run fd -> SerialisedKey -> Maybe PageSpan
+prepLookup (_fd, b, fpix) k
   | Bloom.elem k b = Index.toPageSpan $ Index.search k fpix
   | otherwise      = Nothing

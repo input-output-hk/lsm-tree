@@ -80,15 +80,15 @@ deriving instance Show CompactIndex
 -- Search
 --
 
-type CounterM a = State Int a
+type CounterM a = State PageNo a
 
-evalCounterM :: CounterM a -> Int -> a
+evalCounterM :: CounterM a -> PageNo -> a
 evalCounterM = evalState
 
-incrCounter :: CounterM Int
+incrCounter :: CounterM PageNo
 incrCounter = get >>= \c -> put (c+1) >> pure c
 
-plusCounter :: Int -> CounterM Int
+plusCounter :: PageNo -> CounterM PageNo
 plusCounter n = get >>= \c -> put (c+n) >> pure c
 
 -- | After construction, searching for the minimum/maximum key of every page

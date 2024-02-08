@@ -1,9 +1,10 @@
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE DerivingVia         #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
 
 -- | A compact fence-pointer index for uniformly distributed keys.
 --
@@ -18,7 +19,9 @@ module Database.LSMTree.Internal.Run.Index.Compact (
   , rangeFinderPrecisionBounds
   , suggestRangeFinderPrecision
     -- * Queries
+  , PageNo (..)
   , SearchResult (..)
+  , PageSpan (..)
   , toPageSpan
   , search
   , countClashes
@@ -60,7 +63,6 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Unboxed.Mutable as VUM
 import           Data.Word
 import           Database.LSMTree.Internal.Serialise
-import           Text.Printf (printf)
 
 {- $compact
 
@@ -488,24 +490,29 @@ suggestRangeFinderPrecision maxPages =
   Queries
 -------------------------------------------------------------------------------}
 
+-- | A 0-based number identifying a disk page.
+newtype PageNo = PageNo Int
+  deriving stock (Show, Eq, Ord)
+  deriving newtype Num
+
 data SearchResult =
     NoResult
-  | SinglePage Int
+  | SinglePage PageNo
   -- | @'Multipage' s e@: the value is larger than a page, starts on page s, and
   -- ends on page e.
-  | MultiPage Int Int
-  deriving (Show, Eq)
+  | MultiPage PageNo PageNo
+  deriving stock (Show, Eq)
 
-toPageSpan :: SearchResult -> Maybe (Int, Int)
+-- | A span of pages, representing an inclusive interval of page numbers.
+data PageSpan = PageSpan {
+    pageSpanStart :: PageNo
+  , pageSpanEnd   :: PageNo
+  }
+
+toPageSpan :: SearchResult -> Maybe PageSpan
 toPageSpan NoResult        = Nothing
-toPageSpan (SinglePage i)  = Just (i, i)
-toPageSpan (MultiPage i j) = assert (i < j) $ Just (i, j)
-
-fromPageSpan :: Maybe (Int, Int) -> SearchResult
-fromPageSpan Nothing       = NoResult
-fromPageSpan (Just (i, j)) | i > j     = error $ printf "fromPageSpan: %d > %d" i j
-                           | i == j    = SinglePage i
-                           | otherwise = MultiPage i j
+toPageSpan (SinglePage i)  = Just (PageSpan i i)
+toPageSpan (MultiPage i j) = assert (i < j) $ Just (PageSpan i j)
 
 -- | Given a search key, find the number of the disk page that /might/ contain
 -- this key.
@@ -530,20 +537,22 @@ search k CompactIndex{..} = -- Pre: @[0, V.length ciPrimary)@
         !ub        = fromIntegral $ ciRangeFinder VU.! (rfbits + 1)
         -- Post: @[lb, ub)@
         !primbits  = keySliceBits32 ciRangeFinderPrecision k
-    in  fromPageSpan $
+    in
       case unsafeSearchLEBounds primbits ciPrimary lb ub of
-        Nothing -> Nothing -- Post: @[lb, lb)@ (empty).
+        Nothing -> NoResult -- Post: @[lb, lb)@ (empty).
         Just !i ->         -- Post: @[lb, i]@.
           if unBit $ ciClashes VU.! i then
             -- Post: @[lb, i]@, now in clash recovery mode.
             let i1  = fromJust $ bitIndexFromToRev (BoundInclusive lb) (BoundInclusive i) (Bit False) ciClashes
                 i2  = maybe 0 snd $ Map.lookupLE k ciTieBreaker
                 !i3 = max i1 i2 -- Post: the intersection of @[i1, i]@ and @[i2, i].
-            in  Just (i3, bitLongestPrefixFromTo (BoundExclusive i3) (BoundInclusive i) (Bit True) ciLargerThanPage)
+                !i4 = bitLongestPrefixFromTo (BoundExclusive i3) (BoundInclusive i) (Bit True) ciLargerThanPage
+                      -- Post: [i3, i4]
+            in  if i3 == i4 then SinglePage (PageNo i3) else MultiPage (PageNo i3) (PageNo i4)
                 -- Post: @[i3, i4]@ if a larger-than-page value that starts at
                 -- @i3@ and ends at @i4@, @[i3, i3]@ otherwise for a "normal"
                 -- page.
-          else  Just (i, i) -- Post: @[i, i]@
+          else  SinglePage (PageNo i) -- Post: @[i, i]@
 
 
 countClashes :: CompactIndex -> Int
@@ -831,14 +840,14 @@ data Chunk = Chunk {
   , cClashes        :: !(VU.Vector Bit)
   , cLargerThanPage :: !(VU.Vector Bit)
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 data FinalChunk = FinalChunk {
     fcRangeFinder          :: !(VU.Vector Word32)
   , fcRangeFinderPrecision :: !Int
   , fcTieBreaker           :: !(Map SerialisedKey Int)
   }
-  deriving (Show, Eq)
+  deriving stock (Show, Eq)
 
 -- | Feed in 'Chunk's in the same order that they were yielded from incremental
 -- construction.
@@ -857,7 +866,7 @@ fromChunks cs FinalChunk{..} = CompactIndex {
 -------------------------------------------------------------------------------}
 
 data SMaybe a = SNothing | SJust !a
-  deriving Eq
+  deriving stock Eq
 
 smaybe :: b -> (a -> b) -> SMaybe a -> b
 smaybe snothing sjust = \case
