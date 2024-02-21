@@ -7,6 +7,8 @@ module System.FS.BlockIO.API (
   , mkClosedError
   , IOOp (..)
   , ioopHandle
+  , ioopBufferOffset
+  , ioopByteCount
   , IOResult (..)
     -- * Re-exports
   , ByteCount
@@ -59,6 +61,14 @@ data IOOp m h =
 ioopHandle :: IOOp m h -> Handle h
 ioopHandle (IOOpRead h _ _ _ _)  = h
 ioopHandle (IOOpWrite h _ _ _ _) = h
+
+ioopBufferOffset :: IOOp m h -> BufferOffset
+ioopBufferOffset (IOOpRead _ _ _ bufOff _)  = bufOff
+ioopBufferOffset (IOOpWrite _ _ _ bufOff _) = bufOff
+
+ioopByteCount :: IOOp m h -> ByteCount
+ioopByteCount (IOOpRead _ _ _ _ c)  = c
+ioopByteCount (IOOpWrite _ _ _ _ c) = c
 
 -- | Number of read/written bytes.
 newtype IOResult = IOResult ByteCount

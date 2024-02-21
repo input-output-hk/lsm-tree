@@ -12,7 +12,9 @@ module Database.LSMTree.Internal.Entry (
     -- * Value resolution/merging
   , combine
   , combinesMonoidal
+  , combinesMonoidal'
   , combinesNormal
+  , combinesNormal'
   , resolveEntriesNormal
   , resolveEntriesMonoidal
   ) where
@@ -20,8 +22,10 @@ module Database.LSMTree.Internal.Entry (
 import           Control.DeepSeq (NFData (..))
 import           Data.Bifoldable (Bifoldable (..))
 import           Data.Bifunctor (Bifunctor (..))
-import           Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NE
+import           Data.Foldable1 (Foldable1)
+import qualified Data.Foldable1 as Foldable1
+import           Data.List.NonEmpty
+import           Data.Semigroup
 import qualified Database.LSMTree.Internal.Monoidal as Monoidal
 import qualified Database.LSMTree.Internal.Normal as Normal
 
@@ -120,23 +124,55 @@ combine f   (Mupdate u)       (Insert v)              = Insert (f u v)
 combine f   (Mupdate u)       (InsertWithBlob v blob) = InsertWithBlob (f u v) blob
 combine f   (Mupdate u)       (Mupdate v)             = Mupdate (f u v)
 
-combinesMonoidal :: (v -> v -> v) -> NonEmpty (Entry v blob) -> Entry v blob
+-- | Like 'combine', but the entries are inside a 'Maybe' (semigroup)
+combineMaybe ::
+     (v -> v -> v)
+  -> Maybe (Entry v blobref)
+  -> Maybe (Entry v blobref)
+  -> Maybe (Entry v blobref)
+combineMaybe _ Nothing  b        = b
+combineMaybe _ a        Nothing  = a
+combineMaybe f (Just a) (Just b) = Just (combine f a b)
+
+{-# SPECIALIZE combinesMonoidal :: (v -> v -> v) -> NonEmpty (Entry v blob) -> Entry v blob #-}
+combinesMonoidal ::
+     Foldable1 f
+  => (v -> v -> v)
+  -> f (Entry v blob)
+  -> Entry v blob
 combinesMonoidal f = foldr1 (combine f) -- short-circuit fold
 
-combinesNormal :: NonEmpty (Entry v blob) -> Entry v blob
-combinesNormal = NE.head
+{-# SPECIALIZE combinesMonoidal' :: (v -> v -> v) -> NonEmpty (Maybe (Entry v blob)) -> Maybe (Entry v blob) #-}
+combinesMonoidal' ::
+     Foldable1 f
+  => (v -> v -> v)
+  -> f (Maybe (Entry v blob))
+  -> Maybe (Entry v blob)
+combinesMonoidal' f = foldr1 (combineMaybe f) -- short-circuit fold
 
+{-# SPECIALIZE combinesNormal :: NonEmpty (Entry v blob) -> Entry v blob #-}
+combinesNormal :: Foldable1 f => f (Entry v blob) -> Entry v blob
+combinesNormal = getFirst . Foldable1.foldMap1 First
+
+{-# SPECIALIZE combinesNormal' :: NonEmpty (Maybe (Entry v blob)) -> Maybe (Entry v blob) #-}
+combinesNormal' :: Foldable1 f => f (Maybe (Entry v blob)) -> Maybe (Entry v blob)
+combinesNormal' = fmap getFirst . Foldable1.foldMap1 (fmap First)
+
+{-# SPECIALIZE resolveEntriesNormal :: NonEmpty (Entry v blob) -> Maybe (Normal.Update v blob) #-}
 -- | Returns 'Nothing' if the combined entries can not be mapped to an
 -- 'Normal.Update'.
 resolveEntriesNormal ::
-     NonEmpty (Entry v blob)
+     Foldable1 f
+  => f (Entry v blob)
   -> Maybe (Normal.Update v blob)
 resolveEntriesNormal es = entryToUpdateNormal (combinesNormal es)
 
+{-# SPECIALIZE resolveEntriesMonoidal :: (v -> v -> v) -> NonEmpty (Entry v blob) -> Maybe (Monoidal.Update v) #-}
 -- | Returns 'Nothing' if the combined entries can not be mapped to an
 -- 'Monoidal.Update'.
 resolveEntriesMonoidal ::
-     (v -> v -> v)
-  -> NonEmpty (Entry v blob)
+     Foldable1 f
+  => (v -> v -> v)
+  -> f (Entry v blob)
   -> Maybe (Monoidal.Update v)
 resolveEntriesMonoidal f es = entryToUpdateMonoidal (combinesMonoidal f es)

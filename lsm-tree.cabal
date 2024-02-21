@@ -66,19 +66,24 @@ library
     Database.LSMTree.Normal
 
   build-depends:
-    , base                  >=4.16      && <4.20
-    , bitvec                ^>=1.1
-    , bytestring            ^>=0.11.4.0
+    , base                     >=4.16      && <4.20
+    , bitvec                   ^>=1.1
+    , bytestring               ^>=0.11.4.0
     , containers
-    , crc32c                >=0.1
+    , crc32c                   >=0.1
     , deepseq
     , filepath
-    , fs-api                ^>=0.2
-    , io-classes            ^>=1.3
+    , fs-api                   ^>=0.2
+    , io-classes               ^>=1.3
     , lsm-tree:bloomfilter
-    , primitive             ^>=0.9
-    , vector                ^>=0.13
-    , vector-algorithms     ^>=0.9
+    , lsm-tree:fs-api-blockio
+    , mtl                      ^>=2.3
+    , primitive                ^>=0.9
+    , vector                   ^>=0.13
+    , vector-algorithms        ^>=0.9
+
+  if impl(ghc <9.6)
+    build-depends: foldable1-classes-compat ^>=0.1
 
 -- this exists due windows
 library xxhash
