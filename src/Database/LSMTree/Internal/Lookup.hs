@@ -117,7 +117,7 @@ data NotEnoughBytes = NotEnoughBytes
 -- TODO: optimise by reducing allocations, possibly looking at core, or
 -- revisiting the batching approach.
 lookupsInBatches ::
-     (MonadAsync m, PrimMonad m, MonadThrow m)
+     forall m h. (MonadAsync m, PrimMonad m, MonadThrow m)
   => HasBlockIO m h
   -> Resolve1
   -> BatchSize
@@ -126,14 +126,14 @@ lookupsInBatches ::
   -> m [(SerialisedKey, Maybe (Entry SerialisedValue BlobSpan))]
 lookupsInBatches hbio resolve1 n runs ks = do
     let prepped = prepLookups runs ks
-        (Compose fioops, npages) = prepIOOpReads (Compose prepped)
-        batches = groupsOfN (unBatchSize n) fioops
+        (fioops, npages) = prepIOOpReads (Compose prepped)
     mbuf <- newPinnedByteArray (npages * 4096)
+    let Compose ioops = fioops mbuf
+    let batches = groupsOfN (unBatchSize n) ioops
     kess <- forConcurrently batches $ \batch -> do
-      let ioops = [ (k, fioop mbuf) | (k, fioop) <- batch ]
-      ress <- submitIO hbio (fmap snd ioops)
+      ress <- submitIO hbio (fmap snd batch)
       buf <- unsafeFreezeByteArray mbuf
-      forM (zip ioops ress) $ \((k, ioop), res) -> do
+      forM (zip batch ress) $ \((k, ioop), res) -> do
         unless (checkIOResult ioop res) $ throwIO NotEnoughBytes
         let rpl = rawPageLookup (makeRawPage buf (unBufferOffset $ ioopBufferOffset ioop)) k
         pure . (k,) $ case rpl of
@@ -170,10 +170,10 @@ forceSerialisedValue (SerialisedValue (RawBytes pv)) =
 prepIOOpReads ::
      forall m h f. Traversable f
   => f (Handle h, PageSpan)
-  -> ( f (MutableByteArray (PrimState m) -> IOOp m h)
+  -> ( MutableByteArray (PrimState m) -> f (IOOp m h)
      , Index.NumPages
      )
-prepIOOpReads pspans = second unBufferOffset $ runState (traverse f pspans) 0
+prepIOOpReads pspans = bimap sequence unBufferOffset $ runState (traverse f pspans) 0
   where
     f :: (Handle h, PageSpan)
       -> State BufferOffset (MutableByteArray (PrimState m) -> IOOp m h)
