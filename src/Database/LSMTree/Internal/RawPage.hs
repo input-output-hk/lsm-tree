@@ -11,6 +11,8 @@ module Database.LSMTree.Internal.RawPage (
     rawPageNumBlobs,
     rawPageLookup,
     RawPageLookup(..),
+    rawPageIndex,
+    RawPageIndex(..),
     -- * Debug
     rawPageKeyOffsets,
     rawPageValueOffsets,
@@ -169,6 +171,41 @@ rawPageLookup !page !key
         | i >= j                     = LookupEntryNotPresent
         | key == rawPageKeyAt page i = LookupEntry (rawPageEntryAt page i)
         | otherwise                  = linear (i + 1) j
+
+data RawPageIndex entry =
+       IndexNotPresent
+       -- | The index is present and corresponds to a normal entry that fits
+       -- fully within the page.
+     | IndexEntry !SerialisedKey !entry
+       -- | The index is present and corresponds to an entry where the value
+       -- may have overflowed onto subsequent pages. In this case only the
+       -- length of the suffix is returned. The caller can copy the full
+       -- serialised pages themselves.
+     | IndexEntryOverflow !SerialisedKey !entry !Word32
+  deriving (Eq, Functor, Show)
+
+rawPageIndex
+    :: RawPage
+    -> Word16
+    -> RawPageIndex (Entry SerialisedValue BlobSpan)
+rawPageIndex !page !ix
+  | ix >= dirNumKeys =
+      IndexNotPresent
+  | dirNumKeys > 1 =
+      let ix' = fromIntegral ix
+       in IndexEntry (rawPageKeyAt page ix') (rawPageEntryAt page ix')
+  | otherwise =
+      let ix' = fromIntegral ix
+          key = rawPageKeyAt page ix'
+          entry = rawPageEntry1 page
+          !suffix = rawPageSingleValueSuffix page
+       in if suffix <= 0
+         then IndexEntry key entry
+         else IndexEntryOverflow key entry suffix
+  where
+    !dirNumKeys = rawPageNumKeys page
+
+
 
 -- | for non-single key page case
 rawPageEntryAt :: RawPage -> Int -> Entry SerialisedValue BlobSpan

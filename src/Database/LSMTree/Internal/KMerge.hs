@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- | Datastructures and algorithms for k-way merges.
@@ -28,6 +29,7 @@ import           Control.Monad.Primitive (RealWorld)
 import           Data.Function (on)
 import           Data.IORef
 import           Data.Maybe (fromJust)  -- TODO
+import           Database.LSMTree.Internal.BlobRef (BlobSpan (..))
 import           Database.LSMTree.Internal.Entry
 import           Database.LSMTree.Internal.Run (Run)
 import qualified Database.LSMTree.Internal.Run as Run
@@ -48,38 +50,57 @@ data Merge fhandle = Merge {
 
 -- Input ----------------------------------------------------------------------
 
+-- TODO(optimisation): We allocate this record for each k/op. Might be avoidable?
 data Input fhandle = Input {
       inputNextKey   :: !SerialisedKey
     , inputNextEntry :: !(Entry SerialisedValue SerialisedBlob)
+    , inputNumber    :: !Int  -- | Makes sure we resolve entries in the right order
     , inputReader    :: !(Reader fhandle)
     }
 
 instance Eq (Input fhandle) where
-  (==) = (==) `on` inputNextKey
+  (==) = (==) `on` liftA2 (,) inputNextKey inputNumber
 
 instance Ord (Input fhandle) where
-  compare = compare `on` inputNextKey
+  compare = compare `on` liftA2 (,) inputNextKey inputNumber
 
-makeInput :: HasFS IO h -> Run (FS.Handle h) -> IO (Input (FS.Handle h))
-makeInput fs run = do
+makeInput :: HasFS IO h -> Int -> Run (FS.Handle h) -> IO (Input (FS.Handle h))
+makeInput fs inputNumber run = do
     inputReader <- Reader.new fs run
-    (inputNextKey, inputNextEntry) <- fromJust <$> Reader.readNext fs inputReader
+    (inputNextKey, inputNextEntry) <- fromJust <$> readNext fs inputReader
     return Input {..}
 
-nextInput ::
+stepInput ::
      HasFS IO h
   -> Input (FS.Handle h)
   -> IO (Maybe (Input (FS.Handle h)))
-nextInput fs Input {..} =
-    fmap (\(key, entry) -> Input key entry inputReader)
-      <$> Reader.readNext fs inputReader
+stepInput fs Input {..} =
+    fmap (\(key, entry) -> Input key entry inputNumber inputReader)
+      <$> readNext fs inputReader
+
+-- TODO: what should the signature be?
+readNext :: HasFS IO h -> Reader (FS.Handle h) -> IO (Maybe (SerialisedKey, Entry SerialisedValue SerialisedBlob))
+readNext fs inputReader = do
+    res <- Reader.readNext fs inputReader
+    case res of
+      Reader.ReaderClosed ->
+        return Nothing
+      Reader.ReadNormalEntry key entry -> do
+        -- TODO(optimisation): reading the blob might be wasted if the entry
+        -- gets dropped during resolution. We could delay reading, but then
+        -- we need to keep some reference to the corresponding run file.
+        entry' <- traverse (Reader.resolveBlobSpan fs inputReader) entry
+        return $ Just (key, entry')
+      Reader.ReadOverflowEntry key entryPrefix suffix -> do
+        entry' <- traverse (Reader.resolveBlobSpan fs inputReader) entryPrefix
+        return $ Just (key, entry') -- TODO
 
 -------------------------------------------------------------------------------
 
 new :: HasFS IO h -> [Run (FS.Handle h)] -> IO (Merge (FS.Handle h))
 new fs inputs = do
     (mergeInputs, firstInput) <-
-      Heap.newMutableHeap =<< traverse (makeInput fs) inputs
+      Heap.newMutableHeap =<< sequenceA (zipWith (makeInput fs) [1..] inputs)
     mergeNextInput <- newIORef (fromJust firstInput)  -- TODO
 
     let outputPaths = undefined
@@ -92,12 +113,13 @@ new fs inputs = do
 -- | Produce a single entry (which could use multiple inputs with the same key).
 step :: HasFS IO h -> Merge (FS.Handle h) -> IO ()
 step fs Merge {..} = do
-    Input key entry reader <- readIORef mergeNextInput
+    Input {..} <- readIORef mergeNextInput
     -- consume any inputs that might still be for the same key, resolve
     (resolvedEntry, nextInput) <- undefined
     -- write one entry
+    -- TODO: resolve blob
     -- TODO: larger than page
-    MRun.addFullKOp fs mergeOutput key resolvedEntry
+    MRun.addFullKOp fs mergeOutput inputNextKey resolvedEntry
     -- remember next key and entry
     writeIORef mergeNextInput nextInput
     return ()
