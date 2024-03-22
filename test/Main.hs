@@ -9,6 +9,7 @@ import qualified Test.Database.LSMTree.Internal.Entry
 import qualified Test.Database.LSMTree.Internal.Lookup
 import qualified Test.Database.LSMTree.Internal.PageAcc
 import qualified Test.Database.LSMTree.Internal.PageAcc1
+import qualified Test.Database.LSMTree.Internal.RawOverflowPage
 import qualified Test.Database.LSMTree.Internal.RawPage
 import qualified Test.Database.LSMTree.Internal.Run
 import qualified Test.Database.LSMTree.Internal.Run.BloomFilter
@@ -32,6 +33,7 @@ main = defaultMain $ testGroup "lsm-tree"
     , Test.Database.LSMTree.Internal.PageAcc.tests
     , Test.Database.LSMTree.Internal.PageAcc1.tests
     , Test.Database.LSMTree.Internal.RawPage.tests
+    , Test.Database.LSMTree.Internal.RawOverflowPage.tests
     , Test.Database.LSMTree.Internal.Run.tests
     , Test.Database.LSMTree.Internal.Run.BloomFilter.tests
     , Test.Database.LSMTree.Internal.Run.Construction.tests

@@ -55,6 +55,7 @@ module Database.LSMTree.Generators (
   , genRawBytesN
   , genRawBytesSized
   , packRawBytesPinnedOrUnpinned
+  , LargeRawBytes(..)
   ) where
 
 import           Control.DeepSeq (NFData)
@@ -587,6 +588,13 @@ deriving newtype instance Arbitrary SerialisedValue
 instance Arbitrary SerialisedBlob where
   arbitrary = SerialisedBlob <$> genRawBytes
   shrink (SerialisedBlob rb) = SerialisedBlob <$> shrinkRawBytes rb
+
+newtype LargeRawBytes = LargeRawBytes RawBytes
+  deriving Show
+
+instance Arbitrary LargeRawBytes where
+  arbitrary = genRawBytesSized (4096*3) >>= fmap LargeRawBytes . genSlice
+  shrink (LargeRawBytes rb) = map LargeRawBytes (shrink rb)
 
 {-------------------------------------------------------------------------------
   BlobRef
