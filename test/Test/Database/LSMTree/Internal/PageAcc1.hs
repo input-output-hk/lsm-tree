@@ -40,22 +40,26 @@ prototype
     -> Maybe Proto.BlobRef
     -> Property
 prototype k v br =
-    label (show (BS.length lbytes)) $
-    propEqualRawPages lhs rhs .&&. lbytes === RB.toByteString rbytes
+    label (show (length loverflow) ++ " overflow pages") $
+         propEqualRawPages lhs rhs
+    .&&. counterexample "overflow pages do not match"
+           (loverflow === roverflow)
   where
-    (lhs, lbytes) = toRawPage $ Proto.PageLogical [(k, Proto.Insert v, br)]
-    (rhs, rbytes) = singletonPage (convKey k) (convOp (Proto.Insert v) br)
+    (lhs, loverflow) = toRawPage $ Proto.PageLogical [(k, Proto.Insert v, br)]
+    (rhs, roverflow) = singletonPage (convKey k) (convOp (Proto.Insert v) br)
 
 prototypeU
     :: Proto.Key
     -> Proto.Value
     -> Property
 prototypeU k v =
-    label (show (BS.length lbytes)) $
-    propEqualRawPages lhs rhs .&&. lbytes === RB.toByteString rbytes
+    label (show (length loverflow) ++ " overflow pages") $
+         propEqualRawPages lhs rhs
+    .&&. counterexample "overflow pages do not match"
+           (loverflow === roverflow)
   where
-    (lhs, lbytes) = toRawPage $ Proto.PageLogical [(k, Proto.Mupsert v, Nothing)]
-    (rhs, rbytes) = singletonPage (convKey k) (convOp (Proto.Mupsert v) Nothing)
+    (lhs, loverflow) = toRawPage $ Proto.PageLogical [(k, Proto.Mupsert v, Nothing)]
+    (rhs, roverflow) = singletonPage (convKey k) (convOp (Proto.Mupsert v) Nothing)
 
 convKey :: Proto.Key -> SerialisedKey
 convKey (Proto.Key k) = SerialisedKey $ RB.fromByteString k
