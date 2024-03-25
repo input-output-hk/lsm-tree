@@ -29,7 +29,7 @@ singletonPage
     -> (RawPage, [RawOverflowPage])
 singletonPage k (Insert v) = runST $ do
     -- allocate bytearray
-    ba <- P.newByteArray pageSize :: ST s (P.MutableByteArray s)
+    ba <- P.newPinnedByteArray pageSize :: ST s (P.MutableByteArray s)
     P.fillByteArray ba 0 pageSize 0
 
     -- directory: 64 bytes
@@ -55,7 +55,7 @@ singletonPage k (Insert v) = runST $ do
     P.copyByteArray ba (32 + klen) vba voff vlen'
 
     ba' <- P.unsafeFreezeByteArray ba
-    let !page          = makeRawPage ba' 0
+    let !page          = unsafeMakeRawPage ba' 0
         !suffix        = RawBytes.drop vlen' v'
         !overflowPages = rawBytesToOverflowPages suffix
     return (page, overflowPages)
@@ -65,7 +65,7 @@ singletonPage k (Insert v) = runST $ do
 
 singletonPage k (InsertWithBlob v (BlobSpan w64 w32)) = runST $ do
     -- allocate bytearray
-    ba <- P.newByteArray pageSize :: ST s (P.MutableByteArray s)
+    ba <- P.newPinnedByteArray pageSize :: ST s (P.MutableByteArray s)
     P.fillByteArray ba 0 pageSize 0
 
     -- directory: 64 bytes
@@ -93,7 +93,7 @@ singletonPage k (InsertWithBlob v (BlobSpan w64 w32)) = runST $ do
     P.copyByteArray ba (44 + klen) vba voff vlen'
 
     ba' <- P.unsafeFreezeByteArray ba
-    let !page          = makeRawPage ba' 0
+    let !page          = unsafeMakeRawPage ba' 0
         !suffix        = RawBytes.drop vlen' v'
         !overflowPages = rawBytesToOverflowPages suffix
     return (page, overflowPages)
@@ -103,7 +103,7 @@ singletonPage k (InsertWithBlob v (BlobSpan w64 w32)) = runST $ do
 
 singletonPage k (Mupdate v) = runST $ do
     -- allocate bytearray
-    ba <- P.newByteArray pageSize :: ST s (P.MutableByteArray s)
+    ba <- P.newPinnedByteArray pageSize :: ST s (P.MutableByteArray s)
     P.fillByteArray ba 0 pageSize 0
 
     -- directory: 64 bytes
@@ -129,7 +129,7 @@ singletonPage k (Mupdate v) = runST $ do
     P.copyByteArray ba (32 + klen) vba voff vlen'
 
     ba' <- P.unsafeFreezeByteArray ba
-    let !page          = makeRawPage ba' 0
+    let !page          = unsafeMakeRawPage ba' 0
         !suffix        = RawBytes.drop vlen' v'
         !overflowPages = rawBytesToOverflowPages suffix
     return (page, overflowPages)
