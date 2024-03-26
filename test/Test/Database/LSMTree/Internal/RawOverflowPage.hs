@@ -35,13 +35,11 @@ prop_rawBytesToRawOverflowPage
     label (if BA.isByteArrayPinned ba then "pinned" else "unpinned") $
     label (if off == 0 then "offset 0" else "offset non-0") $
 
-        rawOverflowPageRawBytes (makeRawOverflowPage ba off len)
+        rawOverflowPageRawBytes (makeRawOverflowPage ba off (min len 4096))
     === RawBytes.take 4096 bytes <> padding
   where
-    padding = RawBytes.fromVector (PV.replicate paddinglen 0)
-    paddinglen
-      | RawBytes.size bytes > 4096 = 0
-      | otherwise = 4096 - (RawBytes.size bytes `mod` 4096)
+    padding    = RawBytes.fromVector (PV.replicate paddinglen 0)
+    paddinglen = 4096 - (min len 4096)
 
 
 -- | Converting the bytes to @[RawOverflowPage]@ and back gives us the original
