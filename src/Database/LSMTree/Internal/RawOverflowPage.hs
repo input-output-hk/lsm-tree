@@ -94,7 +94,7 @@ makeRawOverflowPageCopy ba off len =
       mba <- newPinnedByteArray 4096
       let suffixlen = min 4096 len -- would only do anything if assertions off
       copyByteArray mba 0 ba off suffixlen
-      when (suffixlen < 4096) $ fillByteArray mba suffixlen 4096 0
+      when (suffixlen < 4096) $ fillByteArray mba suffixlen (4096-suffixlen) 0
       return mba
 
 -- | Create a 'RawOverflowPage' without copying. The byte array and offset must
