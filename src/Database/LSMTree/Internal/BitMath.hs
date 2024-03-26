@@ -28,6 +28,8 @@ module Database.LSMTree.Internal.BitMath (
     mod64,
     mul64,
     ceilDiv64,
+    -- * 4096, page size
+    roundUpToPageSize,
 ) where
 
 import           Data.Bits
@@ -150,3 +152,12 @@ mul64 x = unsafeShiftL x 6
 ceilDiv64 :: (Bits a, Num a) => a -> a
 ceilDiv64 i = unsafeShiftR (i + 63) 6
 {-# INLINE ceilDiv64 #-}
+
+-------------------------------------------------------------------------------
+-- 4096
+-------------------------------------------------------------------------------
+
+roundUpToPageSize :: Int -> Int
+roundUpToPageSize n =
+    -- assumes pageSize = 4096:
+    ((n + 0x0fff) .&. complement 0x0fff)

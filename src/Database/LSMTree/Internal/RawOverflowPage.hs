@@ -12,12 +12,12 @@ module Database.LSMTree.Internal.RawOverflowPage (
 import           Control.DeepSeq (NFData (rnf))
 import           Control.Exception (assert)
 import           Control.Monad (when)
-import           Data.Bits
 import           Data.Primitive.ByteArray (ByteArray (..), copyByteArray,
                      fillByteArray, isByteArrayPinned, newPinnedByteArray,
                      runByteArray, sizeofByteArray)
 import qualified Data.Vector.Primitive as P
 import           Data.Word (Word8)
+import           Database.LSMTree.Internal.BitMath (roundUpToPageSize)
 import           Database.LSMTree.Internal.Serialise.RawBytes (RawBytes (..))
 import qualified Database.LSMTree.Internal.Serialise.RawBytes as RB
 
@@ -154,11 +154,6 @@ rawBytesToOverflowPagesUnpinned !off !len !ba =
      in assert (sizeofByteArray ba' == lenPages) $
         assert (lenPages `mod` 4096 == 0) $
         rawBytesToOverflowPagesPinned 0 lenPages ba'
-
-roundUpToPageSize :: Int -> Int
-roundUpToPageSize n =
-    -- assumes pageSize = 4096:
-    ((n + 0x0fff) .&. complement 0x0fff)
 
 rawOverflowPageRawBytes :: RawOverflowPage -> RawBytes
 rawOverflowPageRawBytes (RawOverflowPage off ba) =
