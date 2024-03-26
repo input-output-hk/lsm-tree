@@ -172,7 +172,7 @@ prop_keys :: PageLogical -> Property
 prop_keys p@(PageLogical xs) =
     rawPageKeys rawpage === V.fromList keys
   where
-    (rawpage, _overflowPages) = toRawPage p
+    rawpage = fst $ toRawPage p
 
     keys :: [SerialisedKey]
     keys = [ SerialisedKey $ RB.fromByteString bs | (Key bs, _, _) <- xs ]
@@ -181,7 +181,7 @@ prop_values :: PageLogical -> Property
 prop_values p@(PageLogical xs) =
     length xs /= 1 ==> rawPageValues rawpage === V.fromList values
   where
-    (rawpage, _overflowPages) = toRawPage p
+    rawpage = fst $ toRawPage p
 
     values :: [SerialisedValue]
     values = [ SerialisedValue $ extractValue op | (_, op, _) <- xs ]
@@ -194,7 +194,7 @@ prop_blobspans :: PageLogical -> Property
 prop_blobspans p@(PageLogical xs) =
     [rawPageBlobSpanIndex rawpage i | i <- [0 .. length blobSpans - 1] ] === blobSpans
   where
-    (rawpage, _overflowPages) = toRawPage p
+    rawpage = fst $ toRawPage p
 
     blobSpans :: [BlobSpan]
     blobSpans = [ BlobSpan x y | (_, _, Just (BlobRef x y)) <- xs ]
@@ -203,7 +203,7 @@ prop_hasblobspans :: PageLogical -> Property
 prop_hasblobspans p@(PageLogical xs) =
     [ rawPageHasBlobSpanAt rawpage i /= 0 | i <- [0 .. length xs - 1] ] === blobSpans
   where
-    (rawpage, _overflowPages) = toRawPage p
+    rawpage = fst $ toRawPage p
 
     blobSpans :: [Bool]
     blobSpans = [ isJust mb | (_, _, mb) <- xs ]
@@ -212,7 +212,7 @@ prop_ops :: PageLogical -> Property
 prop_ops p@(PageLogical xs) =
     [ rawPageOpAt rawpage i | i <- [0 .. length xs - 1] ] === ops
   where
-    (rawpage, _overflowPages) = toRawPage p
+    rawpage = fst $ toRawPage p
 
     ops :: [Word64]
     ops = [ fromOp o | (_, o, _) <- xs ]
@@ -232,14 +232,14 @@ prop_entries_exists (PageLogical xs) =
         Mupsert (Value v)      -> Entry.Mupdate (SerialisedValue $ RB.fromByteString v)
         Delete                 -> Entry.Delete
   where
-    (rawpage, _overflowPages) = toRawPage (PageLogical xs)
+    rawpage = fst $ toRawPage (PageLogical xs)
 
 prop_entries_all :: PageLogical -> BS.ByteString -> Property
 prop_entries_all page@(PageLogical xs) bs =
     length xs /= 1 ==> rawPageLookup rawpage k === expected
   where
     k = SerialisedKey $ RB.fromByteString bs
-    (rawpage, _overflowPages) = toRawPage page
+    rawpage = fst $ toRawPage page
 
     lookup3 :: Eq a => a -> [(a,b,c)] -> Maybe (b, c)
     lookup3 _ []            = Nothing
