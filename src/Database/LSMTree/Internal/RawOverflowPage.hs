@@ -63,16 +63,18 @@ instance Eq RawOverflowPage where
 
 -- | Create a 'RawOverflowPage'.
 --
--- This function may copy data to satisfy internal 'RawOverflowPage' invariants.
--- Use 'unsafeMakeRawOverflowPage' if you don't want copy.
+-- The length must be 4096 or less.
+--
+-- This function will copy data if the byte array is not pinned, or the length
+-- is strictly less than 4096.
 --
 makeRawOverflowPage
     :: ByteArray  -- ^ bytearray
     -> Int        -- ^ offset in bytes into the bytearray
-    -> Int        -- ^ length in bytes
+    -> Int        -- ^ length in bytes, must be @>= 0 && <= 4096@
     -> RawOverflowPage
 makeRawOverflowPage ba off len
-    | len >= 4096
+    | len == 4096
     , let page = RawOverflowPage off ba
     , invariant page
     = page
@@ -86,16 +88,18 @@ makeRawOverflowPageCopy
     -> Int        -- ^ length in bytes
     -> RawOverflowPage
 makeRawOverflowPageCopy ba off len =
+    assert (len >= 0 && len < 4096 && len <= sizeofByteArray ba - off) $
     (\page -> assert (invariant page) page) $
     RawOverflowPage 0 $ runByteArray $ do
       mba <- newPinnedByteArray 4096
-      let suffixlen = clamp 0 4096 (min len (sizeofByteArray ba - off))
+      let suffixlen = min 4096 len -- would only do anything if assertions off
       copyByteArray mba 0 ba off suffixlen
       when (suffixlen < 4096) $ fillByteArray mba suffixlen 4096 0
       return mba
-  where
-    clamp l u x = max l (min u x)
 
+-- | Create a 'RawOverflowPage' without copying. The byte array and offset must
+-- satisfy the invariant for 'RawOverflowPage'.
+--
 unsafeMakeRawOverflowPage
     :: ByteArray  -- ^ bytearray, must be pinned and contain 4096 bytes (after offset)
     -> Int        -- ^ offset in bytes
