@@ -20,6 +20,7 @@ import           Test.Util.RawPage
 
 import           Database.LSMTree.Internal.BlobRef (BlobSpan (..))
 import qualified Database.LSMTree.Internal.Entry as Entry
+import           Database.LSMTree.Internal.RawOverflowPage
 import           Database.LSMTree.Internal.RawPage
 import           Database.LSMTree.Internal.Serialise
 import qualified Database.LSMTree.Internal.Serialise.RawBytes as RB
@@ -42,7 +43,7 @@ tests = testGroup "Database.LSMTree.Internal.RawPage"
 
         let page = makeRawPage (byteArrayFromList bytes) 0
 
-        page @=? fst (toRawPage (PageLogical []))
+        (page, []) @=? toRawPage (PageLogical [])
         rawPageNumKeys page @=? 0
         rawPageNumBlobs page @=? 0
         rawPageKeyOffsets page @=? P.fromList [10]
@@ -90,7 +91,7 @@ tests = testGroup "Database.LSMTree.Internal.RawPage"
 
         let page = makeRawPage (byteArrayFromList bytes) 0
 
-        page @=? fst (toRawPage (PageLogical [(Key "\x42\x43", Insert (Value "\x88\x99"), Just (BlobRef 0xff 0xfe))]))
+        (page, []) @=? toRawPage (PageLogical [(Key "\x42\x43", Insert (Value "\x88\x99"), Just (BlobRef 0xff 0xfe))])
         rawPageNumKeys page @=? 1
         rawPageNumBlobs page @=? 1
         rawPageKeyOffsets page @=? P.fromList [44, 46]
@@ -115,7 +116,7 @@ tests = testGroup "Database.LSMTree.Internal.RawPage"
 
         let page = makeRawPage (byteArrayFromList bytes) 0
 
-        page @=? fst (toRawPage (PageLogical [(Key "\x42\x43", Delete, Nothing)]))
+        (page, []) @=? toRawPage (PageLogical [(Key "\x42\x43", Delete, Nothing)])
         rawPageNumKeys page @=? 1
         rawPageNumBlobs page @=? 0
         rawPageKeyOffsets page @=? P.fromList [32, 34]
@@ -141,7 +142,7 @@ tests = testGroup "Database.LSMTree.Internal.RawPage"
 
         let page = makeRawPage (byteArrayFromList bytes) 0
 
-        page @=? fst (toRawPage (PageLogical [(Key "\x42\x43", Mupsert (Value "\x44\x45"), Nothing), (Key "\x52\x53", Mupsert (Value "\x54\x55"), Nothing)]))
+        (page, []) @=? toRawPage (PageLogical [(Key "\x42\x43", Mupsert (Value "\x44\x45"), Nothing), (Key "\x52\x53", Mupsert (Value "\x54\x55"), Nothing)])
         rawPageNumKeys page @=? 2
         rawPageNumBlobs page @=? 0
         rawPageKeyOffsets page @=? P.fromList [34, 36, 38]
@@ -254,42 +255,65 @@ prop_entries_all page@(PageLogical xs) bs =
 
 prop_big_insert :: Key -> Maybe BlobRef -> Property
 prop_big_insert k blobref =
-    rawPageLookup rawpage k' === case blobref of
-        Nothing            -> LookupEntryOverflow (Entry.Insert (SerialisedValue $ RB.fromByteString (BS.take size v))) (fromIntegral sfxSize)
-        Just (BlobRef x y) -> LookupEntryOverflow (Entry.InsertWithBlob (SerialisedValue $ RB.fromByteString (BS.take size v)) (BlobSpan x y)) (fromIntegral sfxSize)
+    case rawPageLookup rawpage k' of
+      LookupEntryOverflow (Entry.Insert (SerialisedValue v')) suffixlen
+        | Nothing <- blobref
+        -> v === RB.toByteString v' <>
+                 BS.take (fromIntegral suffixlen) overflowPagesBS
+
+      LookupEntryOverflow (Entry.InsertWithBlob (SerialisedValue v')
+                                                (BlobSpan x' y'))
+                          suffixlen
+        | Just (BlobRef x y) <- blobref
+        -> v === RB.toByteString v' <>
+                 BS.take (fromIntegral suffixlen) overflowPagesBS
+           .&&. (x, y) === (x', y')
+
+      other -> counterexample (show other) False
   where
     page = PageLogical [(k, Insert (Value v), blobref)]
-    (rawpage, sfx) = toRawPage page
+    (rawpage, overflowPages) = toRawPage page
+    overflowPagesBS = RB.toByteString
+                        (mconcat (map rawOverflowPageRawBytes overflowPages))
     k' = SerialisedKey $ RB.fromByteString (unKey k)
 
     -- original value
     v = BS.replicate 5000 42
 
-    size :: Int
-    size = 5000 - sfxSize
-
-    sfxSize :: Int
-    sfxSize = BS.length sfx
-
 prop_single_entry :: Key -> Operation -> Maybe BlobRef -> Property
-prop_single_entry k op blobref = label (show $ BS.null sfx) $
-    rawPageLookup rawpage k' === mkLookupEntry case op of
-        Insert (Value v)       -> case blobref of
-            Nothing            -> Entry.Insert (SerialisedValue $ RB.fromByteString (trim v))
-            Just (BlobRef x y) -> Entry.InsertWithBlob (SerialisedValue $ RB.fromByteString (trim v)) (BlobSpan x y)
-        Mupsert (Value v)      -> Entry.Mupdate (SerialisedValue $ RB.fromByteString (trim v))
-        Delete                 -> Entry.Delete
+prop_single_entry k op blobref = label (show $ null overflowPages) $
+    case rawPageLookup rawpage k' of
+      LookupEntryNotPresent           -> counterexample "LookupEntryNotPresent" False
+      LookupEntry e                   -> compareOpEntry op e 0
+      LookupEntryOverflow e suffixlen -> compareOpEntry op e (fromIntegral suffixlen)
   where
     page = PageLogical [(k, op, blobref)]
-    (rawpage, sfx) = toRawPage page
+    (rawpage, overflowPages) = toRawPage page
+    overflowPagesBS = RB.toByteString
+                        (mconcat (map rawOverflowPageRawBytes overflowPages))
     k' = SerialisedKey $ RB.fromByteString (unKey k)
 
-    trim :: BS.ByteString -> BS.ByteString
-    trim = BS.dropEnd sfxSize
+    compareOpEntry (Insert (Value v))
+                   (Entry.Insert (SerialisedValue v'))
+                   suffixlen
+      | Nothing <- blobref =
+            v === RB.toByteString v' <> BS.take suffixlen overflowPagesBS
 
-    sfxSize :: Int
-    sfxSize = BS.length sfx
+    compareOpEntry (Insert (Value v))
+                   (Entry.InsertWithBlob (SerialisedValue v') (BlobSpan x' y'))
+                   suffixlen
+      | Just (BlobRef x y) <- blobref =
+            v === RB.toByteString v' <> BS.take suffixlen overflowPagesBS
+       .&&. (x, y) == (x', y')
 
-    mkLookupEntry entry
-      | sfxSize > 0 = LookupEntryOverflow entry (fromIntegral sfxSize)
-      | otherwise   = LookupEntry         entry
+    compareOpEntry (Mupsert (Value v))
+                   (Entry.Mupdate (SerialisedValue v'))
+                   suffixlen =
+      v === RB.toByteString v' <> BS.take suffixlen overflowPagesBS
+
+    compareOpEntry Delete Entry.Delete _suffixlen =
+      property True
+
+    compareOpEntry _op e _suffixlen =
+      counterexample (show op ++ " not equivalent to " ++ show e) False
+

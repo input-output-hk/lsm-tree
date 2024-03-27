@@ -13,6 +13,8 @@ import           Data.Primitive.ByteArray (ByteArray (..))
 import           Data.These (These (..))
 import           Data.Word (Word8)
 import           Database.LSMTree.Internal.BitMath (div16, mod16)
+import           Database.LSMTree.Internal.RawOverflowPage (RawOverflowPage,
+                     makeRawOverflowPage)
 import           Database.LSMTree.Internal.RawPage (RawPage, makeRawPage,
                      rawPageRawBytes)
 import qualified Database.LSMTree.Internal.Serialise.RawBytes as RB
@@ -22,12 +24,26 @@ import           Test.Tasty.HUnit (Assertion, assertFailure)
 import           Test.Tasty.QuickCheck (Property, counterexample)
 
 -- | Convert prototype 'PageLogical' to 'RawPage'.
-toRawPage :: PageLogical -> (RawPage, BS.ByteString)
-toRawPage p = (page, sfx)
+toRawPage :: PageLogical -> (RawPage, [RawOverflowPage])
+toRawPage p = (page, overflowPages)
   where
     bs = serialisePage $ encodePage p
     (pfx, sfx) = BS.splitAt 4096 bs -- hardcoded page size.
-    page = case SBS.toShort pfx of SBS.SBS ba -> makeRawPage (ByteArray ba) 0
+    page          = makeRawPageBS pfx
+    overflowPages = [ makeRawOverflowPageBS sfxpg
+                    | sfxpg <- takeWhile (not . BS.null)
+                                 [ BS.drop n sfx | n <- [0, 4096 .. ] ]
+                    ]
+
+makeRawPageBS :: BS.ByteString -> RawPage
+makeRawPageBS bs =
+    case SBS.toShort bs of
+      SBS.SBS ba -> makeRawPage (ByteArray ba) 0
+
+makeRawOverflowPageBS :: BS.ByteString -> RawOverflowPage
+makeRawOverflowPageBS bs =
+    case SBS.toShort bs of
+      SBS.SBS ba -> makeRawOverflowPage (ByteArray ba) 0 (BS.length bs)
 
 assertEqualRawPages :: RawPage -> RawPage -> Assertion
 assertEqualRawPages a b = unless (a == b) $ do

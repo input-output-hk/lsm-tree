@@ -10,10 +10,12 @@ module Test.Database.LSMTree.Generators (
 
 import           Control.DeepSeq (NFData, deepseq)
 import           Data.ByteString (ByteString)
-import           Data.Word (Word64)
-import           Database.LSMTree.Generators (chunkSizeInvariant,
-                     pagesInvariant, rfprecInvariant, writeBufferInvariant)
-import           Database.LSMTree.Internal.Serialise.RawBytes (RawBytes)
+import qualified Data.Vector.Primitive as PV
+import           Data.Word (Word64, Word8)
+
+import           Database.LSMTree.Generators
+import           Database.LSMTree.Internal.Serialise.RawBytes (RawBytes (..))
+
 import           Test.Database.LSMTree.Internal.Run.Index.Compact ()
 import           Test.QuickCheck (Arbitrary (..), Gen, Testable (..),
                      forAllShrink)
@@ -31,7 +33,10 @@ tests = testGroup "Test.Database.LSMTree.Generators" [
     , testGroup "Chunk size" $
         prop_arbitraryAndShrinkPreserveInvariant chunkSizeInvariant
     , testGroup "Raw bytes" $
-        prop_arbitraryAndShrinkPreserveInvariant (deepseqInvariant @RawBytes)
+        [testProperty "packRawBytesPinnedOrUnpinned"
+                      prop_packRawBytesPinnedOrUnpinned
+        ]
+     ++ prop_arbitraryAndShrinkPreserveInvariant (deepseqInvariant @RawBytes)
     ]
 
 prop_arbitraryAndShrinkPreserveInvariant ::
@@ -51,3 +56,7 @@ prop_forAllArbitraryAndShrinkPreserveInvariant gen shr inv =
 -- | Trivial invariant, but checks that the value is finite
 deepseqInvariant :: NFData a => a -> Bool
 deepseqInvariant x = x `deepseq` True
+
+prop_packRawBytesPinnedOrUnpinned :: Bool -> [Word8] -> Bool
+prop_packRawBytesPinnedOrUnpinned pinned ws =
+    packRawBytesPinnedOrUnpinned pinned ws == RawBytes (PV.fromList ws)

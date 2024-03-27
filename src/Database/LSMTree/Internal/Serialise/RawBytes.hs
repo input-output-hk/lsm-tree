@@ -28,11 +28,13 @@ module Database.LSMTree.Internal.Serialise.RawBytes (
   , size
     -- ** Extracting subvectors (slicing)
   , take
+  , drop
   , topBits16
   , sliceBits32
     -- * Construction
     -- | Use 'Semigroup' and 'Monoid' operations
     -- * Conversions
+  , fromVector
   , fromByteArray
     -- ** Lists
   , pack
@@ -58,7 +60,7 @@ import qualified Data.Vector.Primitive as P
 import           Database.LSMTree.Internal.ByteString (shortByteStringFromTo,
                      tryGetByteArray)
 import           Database.LSMTree.Internal.Run.BloomFilter (Hashable (..))
-import           Prelude hiding (take)
+import           Prelude hiding (drop, take)
 
 import           GHC.Exts
 import           GHC.Stack
@@ -127,6 +129,10 @@ size = coerce P.length
 -- | \( O(1) \)
 take :: Int -> RawBytes -> RawBytes
 take = coerce P.take
+
+-- | \( O(1) \)
+drop :: Int -> RawBytes -> RawBytes
+drop = coerce P.drop
 
 -- | @'topBits16' n rb@ slices the first @n@ bits from the /top/ of the raw
 -- bytes @rb@. Returns the string of bits as a 'Word16'.
@@ -205,6 +211,10 @@ instance Monoid RawBytes where
 {-------------------------------------------------------------------------------
   Conversions
 -------------------------------------------------------------------------------}
+
+-- | \( O(1) \)
+fromVector :: P.Vector Word8 -> RawBytes
+fromVector v = RawBytes v
 
 -- | \( O(1) \)
 fromByteArray :: Int -> Int -> ByteArray -> RawBytes
