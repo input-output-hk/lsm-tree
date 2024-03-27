@@ -317,8 +317,10 @@ serializePageAccN size MPageAcc {..} = do
             | otherwise = do
                   -- traceM $ "loop " ++ show (i, ko, kd, vo, vd)
 
-                  SerialisedKey   (RawBytes (PV.Vector koff klen kba)) <- MV.read mpKeys i
-                  SerialisedValue (RawBytes (PV.Vector voff vlen vba)) <- MV.read mpValues i
+                  k <- MV.read mpKeys i
+                  v <- MV.read mpValues i
+                  let SerialisedKey   (RawBytes (PV.Vector koff klen kba)) = k
+                      SerialisedValue (RawBytes (PV.Vector voff vlen vba)) = v
 
                   -- key and value offsets
                   P.writeByteArray ba (div2 ko) (fromIntegral kd :: Word16)

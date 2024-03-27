@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE InstanceSigs               #-}
 {-# LANGUAGE MagicHash                  #-}
+{-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UnboxedTuples              #-}
 {- HLINT ignore "Redundant lambda" -}
@@ -22,7 +23,7 @@
 module Database.LSMTree.Internal.Serialise.RawBytes (
     -- See Note: [Export structure]
     -- * Raw bytes
-    RawBytes (..)
+    RawBytes (RawBytes)
     -- * Accessors
     -- ** Length information
   , size
@@ -53,7 +54,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import           Data.ByteString.Short (ShortByteString (SBS))
 import qualified Data.ByteString.Short as SBS
-import           Data.Primitive.ByteArray (ByteArray (..), compareByteArrays)
+import           Data.Primitive.ByteArray (ByteArray (..), compareByteArrays,
+                     sizeofByteArray)
 import qualified Data.Vector.Primitive as P
 import           Database.LSMTree.Internal.ByteString (shortByteStringFromTo,
                      tryGetByteArray)
@@ -76,8 +78,24 @@ import           GHC.Word
 
 -- | Raw bytes with no alignment constraint (i.e. byte aligned), and no
 -- guarantee of pinned or unpinned memory (i.e. could be either).
-newtype RawBytes = RawBytes (P.Vector Word8)
+newtype RawBytes = MkRawBytes (P.Vector Word8)
   deriving newtype (Show, NFData)
+
+{-# COMPLETE RawBytes #-}
+pattern RawBytes :: P.Vector Word8 -> RawBytes
+pattern RawBytes v <- MkRawBytes v
+  where
+    RawBytes v = mkRawBytes v
+
+mkRawBytes :: P.Vector Word8 -> RawBytes
+mkRawBytes (P.Vector off len ba) =
+    assert (isValidSlice off len ba) $
+    RawBytes (P.Vector off len ba)
+
+isValidSlice :: Int -> Int -> ByteArray -> Bool
+isValidSlice off len ba =
+    len >= 0
+ && len <= (sizeofByteArray ba - off)
 
 instance Eq RawBytes where
   bs1 == bs2 = compareBytes bs1 bs2 == EQ
@@ -126,7 +144,7 @@ size = coerce P.length
 
 -- | \( O(1) \)
 take :: Int -> RawBytes -> RawBytes
-take = coerce P.take
+take n (RawBytes bs) = RawBytes (P.take n bs)
 
 -- | @'topBits16' n rb@ slices the first @n@ bits from the /top/ of the raw
 -- bytes @rb@. Returns the string of bits as a 'Word16'.
@@ -211,10 +229,10 @@ fromByteArray :: Int -> Int -> ByteArray -> RawBytes
 fromByteArray off len ba = RawBytes (P.Vector off len ba)
 
 pack :: [Word8] -> RawBytes
-pack = coerce P.fromList
+pack = RawBytes . P.fromList
 
 unpack :: RawBytes -> [Word8]
-unpack = coerce P.toList
+unpack (RawBytes v) = P.toList v
 
 {-------------------------------------------------------------------------------
   @bytestring@ utils

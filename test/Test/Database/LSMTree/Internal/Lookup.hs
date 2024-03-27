@@ -34,7 +34,6 @@ import           Database.LSMTree.Internal.Run.BloomFilter as Bloom
 import           Database.LSMTree.Internal.Run.Construction as Run
 import           Database.LSMTree.Internal.Run.Index.Compact as Index
 import           Database.LSMTree.Internal.Serialise
-import           Database.LSMTree.Internal.Serialise.Class
 import qualified Database.LSMTree.Internal.Serialise.RawBytes as RB
 import           Database.LSMTree.Util
 import           GHC.Generics
@@ -121,7 +120,8 @@ prop_inMemRunLookupAndConstruction dat =
         -- read remaining bytes for a multi-page value, and append it to the
         -- prefix we already have
         concatOverflow :: Word32 -> SerialisedValue -> SerialisedValue
-        concatOverflow = coerce $ \(n :: Word32) (v :: RawBytes) ->
+        concatOverflow n (SerialisedValue v) =
+            SerialisedValue $
             v <> RB.take (fromIntegral n) (mconcat $ fmap rawPageRawBytes overflowPages)
           where
             start = i + 1
@@ -227,6 +227,6 @@ shrinkSerialisedValue v
   | sizeofValue v > 64 = -- shrink towards fewer bytes
                           [ coerce RB.take n' v | n' <- shrinkIntegral n ]
                           -- shrink towards a value of all 0-bytes
-                      ++ [ v' | let v' = coerce (P.fromList $ replicate n 0), v' /= v ]
+                      ++ [ v' | let v' = SerialisedValue' (P.fromList $ replicate n 0), v' /= v ]
   | otherwise          = shrink v -- expensive, but thorough
   where n = sizeofValue v
