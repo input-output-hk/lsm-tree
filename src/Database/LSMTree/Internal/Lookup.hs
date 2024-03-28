@@ -1,13 +1,18 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TupleSections    #-}
+
 module Database.LSMTree.Internal.Lookup (
     Run
   , prepLookups
   ) where
 
-import           Data.Foldable (Foldable (..))
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
+-- import qualified Data.Vector.Unboxed as VU
 import           Database.LSMTree.Internal.Run.BloomFilter (Bloom)
 import qualified Database.LSMTree.Internal.Run.BloomFilter as Bloom
 import           Database.LSMTree.Internal.Run.Index.Compact (CompactIndex,
-                     PageSpan)
+                     PageSpan, SearchResult)
 import qualified Database.LSMTree.Internal.Run.Index.Compact as Index
 import           Database.LSMTree.Internal.Serialise
 
@@ -16,17 +21,22 @@ type Run fd = (fd, Bloom SerialisedKey, CompactIndex)
 
 -- | Prepare disk lookups by doing bloom filter queries and index searches.
 --
--- Note: results are grouped by key instead of file descriptor, because this
--- means that results for a single key are close together.
-prepLookups :: [Run fd] -> [SerialisedKey] -> [(SerialisedKey, (fd, PageSpan))]
-prepLookups runs ks =
-    [ (k, (fd, pspan))
-    | k <- ks
-    , r@(fd,_,_) <- runs
-    , pspan <- toList (prepLookup r k)
-    ]
+-- Note: results are tagged with a 'KeyIx', an index into the 'SerialisedKey'
+-- vector.
+prepLookups :: Vector (Run fd) -> Vector SerialisedKey -> Vector (KeyIx, fd, PageSpan)
+prepLookups runs ks = V.concatMap f runs
+  where
+    f r@(fd,_,_) =
+        let x = bloomBatch r ks
+            y = searchBatch r ks x
+        in  V.imapMaybe (\i sres -> (i, fd,) <$> Index.toPageSpan sres) y
 
-prepLookup :: Run fd -> SerialisedKey -> Maybe PageSpan
-prepLookup (_fd, b, fpix) k
-  | Bloom.elem k b = Index.toPageSpan $ Index.search k fpix
-  | otherwise      = Nothing
+type KeyIx = Int
+
+bloomBatch :: Run fd -> Vector SerialisedKey -> Vector Bool
+bloomBatch (_fd, b, _ix) = V.map (`Bloom.elem` b)
+
+searchBatch :: Run fd -> Vector SerialisedKey -> Vector Bool -> Vector SearchResult
+searchBatch (_fd, _, cix) = V.zipWith f
+  where f k b | b         = Index.search k cix
+              | otherwise = Index.NoResult

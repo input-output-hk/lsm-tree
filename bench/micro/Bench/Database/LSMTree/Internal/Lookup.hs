@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeApplications    #-}
 {- HLINT ignore "Use const" -}
 
-module Bench.Database.LSMTree.Internal.Lookup (benchmarks, analysis) where
+module Bench.Database.LSMTree.Internal.Lookup (benchmarks) where
 
 import           Bench.Database.LSMTree.Internal.Run.BloomFilter (elems)
 import           Bench.Database.LSMTree.Internal.Run.Index.Compact
@@ -23,6 +23,8 @@ import           Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Maybe (fromMaybe)
 import           Data.Proxy (Proxy (..))
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
 import           Database.LSMTree.Generators (ChunkSize (..), RFPrecision (..),
                      UTxOKey)
 import           Database.LSMTree.Internal.Lookup (prepLookups)
@@ -78,39 +80,13 @@ benchmarks = bgroup "Bench.Database.LSMTree.Internal.Lookup" [
             bench "Bloomfilter query"    $ whnf (elems b) ks
             -- the compact index is only searched for (true and false) positive
             -- lookup keys
-          , env (pure $ filter (`Bloom.elem` b) ks) $ \ks' ->
-            bench "Compact index search" $ whnf (searches ci) ks'
+          , env (pure $ V.filter (`Bloom.elem` b) ks) $ \ks' ->
+              bench "Compact index search" $ whnf (searches ci) ks'
             -- All prepped lookups are going to be used eventually so we use
             -- @nf@ on the result of 'prepLookups' to ensure that we actually
             -- compute the full list.
-          , bench "In-memory lookup"     $ nf (prepLookups  [((), b, ci)]) ks
+          , bench "In-memory lookup" $ nf (prepLookups  (V.singleton ((), b, ci))) ks
           ]
-
-{-------------------------------------------------------------------------------
-  Analysis
--------------------------------------------------------------------------------}
-
--- In this analysis, around @15%@ to @20%@ of the measured time for
--- 'prepLookups' is not accounted for by bloom filter queries and compact index
--- searches.
-analysis :: IO ()
-analysis = do
-      -- (name, bloomfilter query, compact index search, prepLookups)
-  let def     = ("default", 1.722 , 0.966   , 3.294)
-      onlyPos = ("onlyPos", 0.9108, 0.8873  , 2.139)
-      onlyNeg = ("onlyNeg", 0.6784, 0.009573, 0.8683)
-      highFpr = ("highFpr", 1.155 , 1.652   , 3.417)
-      small   = ("small"  , 0.1602, 0.06589 , 0.2823)
-
-      results :: [(String, Double, Double, Double)]
-      results = [def, onlyPos, onlyNeg, highFpr, small]
-
-  forM_ results $ \(name, query, search, prep) -> do
-    -- the measured time for 'prepLookups' should be close to the time spent on
-    -- bloom filter queries and compact index searches
-    let diff        = prep - (query + search)
-        diffPercent = diff / prep
-    print (name, query, search, prep, diff, diffPercent)
 
 {-------------------------------------------------------------------------------
   Environments
@@ -140,7 +116,7 @@ data Config = Config {
 
 defaultConfig :: Config
 defaultConfig = Config {
-    name         = "default"
+    name         = "defaulty"
   , rfprecDef    = Nothing
   , csize        = ChunkSize 100
   , npages       = 50_000
@@ -156,7 +132,7 @@ prepLookupsEnv ::
      forall k. (Ord k, Uniform k, SerialiseKey k)
   => Proxy k
   -> Config
-  -> IO (Bloom SerialisedKey, CompactIndex, [SerialisedKey])
+  -> IO (Bloom SerialisedKey, CompactIndex, Vector SerialisedKey)
 prepLookupsEnv _ Config {..} = do
     (storedKeys, lookupKeys) <- lookupsEnv @k (mkStdGen 17) totalEntries npos nneg
     let b    = Bloom.fromList fpr $ fmap serialiseKey storedKeys
@@ -164,7 +140,7 @@ prepLookupsEnv _ Config {..} = do
         ps'  = fmap serialiseKey ps
         ps'' = fromPage <$> getPages ps'
         ci   = constructCompactIndex csize (rfprec, ps'')
-    pure (b, ci, fmap serialiseKey lookupKeys)
+    pure (b, ci, serialiseKey <$> V.fromList lookupKeys)
   where
     totalEntries = npages * npageEntries
     rfprec = RFPrecision $

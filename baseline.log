@@ -1,0 +1,29 @@
+Resolving dependencies...
+benchmarking Bench.Database.LSMTree.Internal.Lookup/prepLookups for a single run/defaulty, ? actual pages/Bloomfilter query
+time                 491.8 μs   (490.5 μs .. 493.1 μs)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 491.5 μs   (490.9 μs .. 492.1 μs)
+std dev              2.042 μs   (1.602 μs .. 2.608 μs)
+allocated:           0.870 R²   (0.794 R² .. 0.922 R²)
+  iters              31.498     (29.337 .. 34.037)
+  y                  3082.780   (2645.048 .. 3564.586)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/prepLookups for a single run/defaulty, ? actual pages/Compact index search
+time                 1.067 ms   (1.064 ms .. 1.071 ms)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 1.070 ms   (1.067 ms .. 1.084 ms)
+std dev              21.21 μs   (5.610 μs .. 44.12 μs)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              710208.581 (710201.835 .. 710215.454)
+  y                  3045.683   (2526.812 .. 3658.464)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/prepLookups for a single run/defaulty, ? actual pages/In-memory lookup
+time                 1.894 ms   (1.871 ms .. 1.931 ms)
+                     0.998 R²   (0.995 R² .. 1.000 R²)
+mean                 1.886 ms   (1.877 ms .. 1.909 ms)
+std dev              46.35 μs   (23.42 μs .. 84.43 μs)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              3238349.096 (3238339.918 .. 3238360.690)
+  y                  3155.294   (2589.735 .. 3802.827)
+variance introduced by outliers: 11% (moderately inflated)
+

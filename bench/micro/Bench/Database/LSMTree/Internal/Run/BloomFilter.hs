@@ -14,6 +14,8 @@ import qualified Data.BloomFilter.Easy as Bloom.Easy
 import           Data.Foldable (Foldable (..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
 import           Database.LSMTree.Extras
 import           Database.LSMTree.Generators
 import           Database.LSMTree.Internal.Run.BloomFilter as Bloom
@@ -52,7 +54,7 @@ elemEnv ::
   -> Int    -- ^ Number of entries in the bloom filter
   -> Int    -- ^ Number of positive lookups
   -> Int    -- ^ Number of negative lookups
-  -> IO (Bloom SerialisedKey, [SerialisedKey])
+  -> IO (Bloom SerialisedKey, Vector SerialisedKey)
 elemEnv fpr nbloom nelemsPositive nelemsNegative = do
     stdgen  <- newStdGen
     stdgen' <- newStdGen
@@ -60,10 +62,10 @@ elemEnv fpr nbloom nelemsPositive nelemsNegative = do
                   $ uniformWithoutReplacement    @UTxOKey stdgen  (nbloom + nelemsNegative)
         ys2       = sampleUniformWithReplacement @UTxOKey stdgen' nelemsPositive xs
     zs <- generate $ shuffle (ys1 ++ ys2)
-    pure (Bloom.Easy.easyList fpr (fmap serialiseKey xs), fmap serialiseKey zs)
+    pure (Bloom.Easy.easyList fpr (fmap serialiseKey xs), V.fromList $ fmap serialiseKey zs)
 
 -- | Used for benchmarking 'Bloom.elem'.
-elems :: Bloom.Hashable a => Bloom a -> [a] -> ()
+elems :: Bloom.Hashable a => Bloom a -> Vector a -> ()
 elems b xs = foldl' (\acc x -> Bloom.elem x b `seq` acc) () xs
 
 -- | Input environment for benchmarking 'constructBloom'.
