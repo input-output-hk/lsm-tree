@@ -17,12 +17,14 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Short as SBS
 import           Data.Coerce (coerce)
+import qualified Data.Foldable as F
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Primitive.ByteArray (ByteArray (ByteArray),
                      sizeofByteArray)
 import qualified Data.Set as Set
+import qualified Data.Vector as V
 import qualified Data.Vector.Primitive as P
 import           Data.Word
 import           Database.LSMTree.Generators
@@ -48,13 +50,12 @@ import           Test.Util.Orphans ()
 import           Test.Util.QuickCheck as Util.QC
 
 tests :: TestTree
-tests = testGroup "Test.Database.LSMTree.Internal.Integration" [
+tests = testGroup "Test.Database.LSMTree.Internal.Lookup" [
       testGroup "With multi-page values" [
           testGroup "InMemLookupData" $
             prop_arbitraryAndShrinkPreserveInvariant (deepseqInvariant @(InMemLookupData SerialisedKey SerialisedValue))
         , localOption (QuickCheckMaxSize 1000) $
           testProperty "prop_inMemRunLookupAndConstruction" prop_inMemRunLookupAndConstruction
-
         ]
     , testGroup "Without multi-page values" [
           testGroup "InMemLookupData" $
@@ -71,6 +72,9 @@ tests = testGroup "Test.Database.LSMTree.Internal.Integration" [
     genNoMultiPage = liftArbitrary arbitrary
     shrinkNoMultiPage = liftShrink shrink
 
+conjoinF :: (Testable prop, Foldable f) => f prop -> Property
+conjoinF = conjoin . F.toList
+
 -- | Construct a run incrementally, then test a number of positive and negative lookups.
 prop_inMemRunLookupAndConstruction :: InMemLookupData SerialisedKey SerialisedValue -> Property
 prop_inMemRunLookupAndConstruction dat =
@@ -80,7 +84,7 @@ prop_inMemRunLookupAndConstruction dat =
       $ tabulateNumKeyEntryPairs
       $ tabulateNumPages
       $ tabulateNumLookups
-      $ conjoin (fmap checkMaybeInRun keysMaybeInRun) .&&. conjoin (fmap checkNotInRun keysNotInRun)
+      $ conjoinF (fmap checkMaybeInRun keysMaybeInRun) .&&. conjoinF (fmap checkNotInRun keysNotInRun)
   where
     InMemLookupData{runData, lookups} = dat
 
@@ -91,10 +95,12 @@ prop_inMemRunLookupAndConstruction dat =
     tabulateNumLookups = tabulate "Number of lookups" [showPowersOf10 (length lookups)]
 
     run = mkTestRun runData
+    keys = V.fromList lookups
     -- prepLookups says that a key /could be/ in the given page
-    keysMaybeInRun = prepLookups [run] lookups
+    keyixsMaybeInRun = prepLookups (V.singleton run) keys
+    keysMaybeInRun = V.map (\(kix, ps, pspan) -> (keys V.! kix, ps, pspan)) keyixsMaybeInRun
     -- prepLookups says that a key /is definitely not/ in the given page
-    keysNotInRun = Set.toList (Set.fromList lookups Set.\\ Set.fromList (fmap fst keysMaybeInRun))
+    keysNotInRun = Set.toList (Set.fromList lookups Set.\\ Set.fromList (V.toList (V.map (\(k, _, _) -> k) keysMaybeInRun)))
 
     -- Check that a key /is definitely not/ in the given page.
     checkNotInRun :: SerialisedKey -> Property
@@ -105,8 +111,8 @@ prop_inMemRunLookupAndConstruction dat =
             test  = Nothing
 
     -- | Check that a key /could be/ in the given page
-    checkMaybeInRun :: (SerialisedKey, (Map Int RawPage, PageSpan)) -> Property
-    checkMaybeInRun (k, (ps, PageSpan (PageNo i) (PageNo j)))
+    checkMaybeInRun :: (SerialisedKey, Map Int RawPage, PageSpan) -> Property
+    checkMaybeInRun (k, ps, PageSpan (PageNo i) (PageNo j))
       | i <= j    = tabulate "PageSpan size" [showPowersOf10 $ j - i + 1]
                   $ tabulate1Pre (classifyBin (isJust truth) True)
                   $ truth === test

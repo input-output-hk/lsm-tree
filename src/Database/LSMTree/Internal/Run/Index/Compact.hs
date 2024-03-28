@@ -508,8 +508,8 @@ data SearchResult =
 
 -- | A span of pages, representing an inclusive interval of page numbers.
 data PageSpan = PageSpan {
-    pageSpanStart :: PageNo
-  , pageSpanEnd   :: PageNo
+    pageSpanStart :: !PageNo
+  , pageSpanEnd   :: !PageNo
   }
 
 toPageSpan :: SearchResult -> Maybe PageSpan

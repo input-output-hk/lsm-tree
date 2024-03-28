@@ -312,6 +312,7 @@ benchmark lsm-tree-micro-bench
     , primitive
     , QuickCheck
     , random
+    , vector
 
   ghc-options:      -threaded
 

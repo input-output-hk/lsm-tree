@@ -13,6 +13,8 @@ import           Control.DeepSeq (deepseq)
 import           Control.Monad.ST (runST)
 import           Criterion.Main
 import           Data.Foldable (Foldable (..))
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
 import           Database.LSMTree.Generators
 import           Database.LSMTree.Internal.Run.Index.Compact
 import           Database.LSMTree.Internal.Run.Index.Compact.Construction
@@ -44,17 +46,17 @@ searchEnv ::
      RFPrecision -- ^ Range-finder bit-precision
   -> Int         -- ^ Number of pages
   -> Int         -- ^ Number of searches
-  -> IO (CompactIndex, [SerialisedKey])
+  -> IO (CompactIndex, Vector SerialisedKey)
 searchEnv rfprec npages nsearches = do
     ci <- constructCompactIndex 100 <$> constructionEnv rfprec npages
     stdgen  <- newStdGen
     let ks = serialiseKey <$> uniformWithReplacement @UTxOKey stdgen nsearches
-    pure (ci, ks)
+    pure (ci, V.fromList ks)
 
 -- | Used for benchmarking 'search'.
 searches ::
      CompactIndex
-  -> [SerialisedKey]            -- ^ Keys to search for
+  -> Vector SerialisedKey            -- ^ Keys to search for
   -> ()
 searches ci ks = foldl' (\acc k -> search k ci `deepseq` acc) () ks
 
