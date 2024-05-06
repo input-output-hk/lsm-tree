@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Test.Database.LSMTree.Internal.Run (
     -- * Main test tree
@@ -9,9 +10,8 @@ module Test.Database.LSMTree.Internal.Run (
     isLargeKOp,
 ) where
 
-import           Control.Exception (assert)
 import           Data.Bifoldable (bifoldMap, bisum)
-import           Data.Bifunctor (bimap, first)
+import           Data.Bifunctor (bimap)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
@@ -33,14 +33,11 @@ import           Test.Tasty.QuickCheck
 import           Database.LSMTree.Extras (showPowersOf10)
 import           Database.LSMTree.Extras.Generators (KeyForIndexCompact (..),
                      TypedWriteBuffer (..))
-import           Database.LSMTree.Internal.BitMath
 import           Database.LSMTree.Internal.BlobRef (BlobRef (..), BlobSpan (..))
 import qualified Database.LSMTree.Internal.CRC32C as CRC
 import           Database.LSMTree.Internal.Entry
 import qualified Database.LSMTree.Internal.Normal as N
 import qualified Database.LSMTree.Internal.RawBytes as RB
-import           Database.LSMTree.Internal.RawOverflowPage
-                     (rawOverflowPageRawBytes)
 import           Database.LSMTree.Internal.RawPage
 import           Database.LSMTree.Internal.Run
 import           Database.LSMTree.Internal.RunFsPaths (RunFsPaths (..))
@@ -265,17 +262,8 @@ readKOps fs run = do
     go reader = do
       Reader.next fs reader >>= \case
         Reader.Empty -> return []
-        Reader.ReadSmallEntry key entry -> do
-          entry' <- traverse resolveBlob entry
-          ((key, entry') :) <$> go reader
-        Reader.ReadLargeEntry key entry _ lenSuffix overflowPages -> do
-          entry' <- traverse resolveBlob
-                      (first (appendSuffix lenSuffix overflowPages) entry)
-          ((key, entry') :) <$> go reader
+        Reader.ReadEntry key e -> do
+          e' <- traverse resolveBlob $ Reader.rawToFullEntry e
+          ((key, e') :) <$> go reader
 
     resolveBlob (BlobRef r s) = readBlob fs r s
-
-    appendSuffix lenSuffix overflowPages (SerialisedValue prefix) =
-      assert (ceilDivPageSize (fromIntegral lenSuffix) == length overflowPages) $
-        SerialisedValue $ RB.take (RB.size prefix + fromIntegral lenSuffix) $
-          mconcat (prefix : map rawOverflowPageRawBytes overflowPages)

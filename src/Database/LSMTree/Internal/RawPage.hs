@@ -180,9 +180,9 @@ data RawPageIndex entry =
        -- fully within the page (but might be the only entry on the page).
      | IndexEntry !SerialisedKey !entry
        -- | The index is present and corresponds to an entry where the value
-       -- may have overflowed onto subsequent pages. In this case only the
-       -- length of the suffix is returned. The caller can copy the full
-       -- serialised pages themselves.
+       -- has overflowed onto subsequent pages. In this case only prefix entry
+       -- and the length of the suffix are returned.
+       -- The caller can copy the full serialised pages themselves.
      | IndexEntryOverflow !SerialisedKey !entry !Word32
   deriving (Eq, Functor, Show)
 

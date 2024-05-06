@@ -233,8 +233,8 @@ merge fs Config {..} targetPaths runs = do
   where
     go m =
         Merge.steps fs m stepSize >>= \case
-          Merge.MergeComplete run -> return run
-          Merge.MergeInProgress -> go m
+          (_, Merge.MergeComplete run) -> return run
+          (_, Merge.MergeInProgress) -> go m
 
 outputRunPaths :: Run.RunFsPaths
 outputRunPaths = RunFsPaths 0

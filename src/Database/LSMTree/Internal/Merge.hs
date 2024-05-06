@@ -1,8 +1,5 @@
-{-# LANGUAGE BangPatterns     #-}
-{-# LANGUAGE LambdaCase       #-}
-{-# LANGUAGE NamedFieldPuns   #-}
-{-# LANGUAGE RecordWildCards  #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Database.LSMTree.Internal.Merge (
     Merge (..)
@@ -17,21 +14,13 @@ module Database.LSMTree.Internal.Merge (
 import           Control.Exception (assert)
 import           Control.Monad (when, zipWithM)
 import           Control.Monad.Primitive (RealWorld)
-import           Data.Bifunctor (first)
 import           Data.Coerce (coerce)
 import           Data.Function (on)
 import           Data.IORef
 import           Data.Maybe (catMaybes)
 import           Data.Traversable (for)
-import           Data.Word (Word32)
-import           Database.LSMTree.Internal.BitMath
 import           Database.LSMTree.Internal.BlobRef (BlobRef (..))
 import           Database.LSMTree.Internal.Entry
-import           Database.LSMTree.Internal.PageAcc (entryWouldFitInPage)
-import qualified Database.LSMTree.Internal.RawBytes as RB
-import           Database.LSMTree.Internal.RawOverflowPage (RawOverflowPage,
-                     rawOverflowPageRawBytes)
-import           Database.LSMTree.Internal.RawPage
 import           Database.LSMTree.Internal.Run (Run)
 import qualified Database.LSMTree.Internal.Run as Run
 import           Database.LSMTree.Internal.RunBuilder (RunBuilder)
@@ -45,61 +34,22 @@ import           System.FS.API (HasFS)
 
 -- | An in-progress incremental k-way merge of 'Run's.
 --
--- Each step reads exactly one entry and potentially writes one entry.
---
--- TODO: Try the other approach:
--- Always produce one entry (which could use multiple inputs of the same key).
+-- Since we always resolve all entries of the same key in one go, there is no
+-- need to store incompletely-resolved entries.
 --
 -- TODO: Reference counting will have to be done somewhere, either here or in
 -- the layer above.
 data Merge fhandle = Merge {
-      mergeLevel        :: !Level
-    , mergeMappend      :: !Mappend
-    , mergeReaders      :: {-# UNPACK #-} !(Readers fhandle)
-    , mergeBuilder      :: !(RunBuilder fhandle)
-      -- | The key most recently read from 'mergeReaders'.
-    , mergeCurrentKey   :: !(IORef SerialisedKey)
-      -- | The entry most recently read from 'mergeReaders', which potentially
-      -- still has to be resolved with the next ones (if their keys match).
-    , mergeCurrentEntry :: !(IORef (PrefixEntry fhandle))
+      mergeLevel   :: !Level
+    , mergeMappend :: !Mappend
+    , mergeReaders :: {-# UNPACK #-} !(Readers fhandle)
+    , mergeBuilder :: !(RunBuilder fhandle)
     }
 
 data Level = MidLevel | LastLevel
   deriving (Eq, Show)
 
 type Mappend = SerialisedValue -> SerialisedValue -> SerialisedValue
-
--- | Invariant: 'Mupdate' entries are always 'FullEntry'.
-data PrefixEntry fhandle
-    -- | The value is fully in memory, but can still be large, e.g. when it was
-    -- created by a 'Mupdate' operation.
-  = FullEntry !(Entry SerialisedValue (BlobRef (Run fhandle)))
-    -- | The 'Entry' contains just a prefix of the value, the rest is in the
-    -- (non-zero) overflow pages. This entry can only come from the input run.
-  | OverflowEntry
-      !(Entry SerialisedValue (BlobRef (Run fhandle)))
-      !RawPage
-      !Word32
-      ![RawOverflowPage]
-
-prefixEntryInvariant :: PrefixEntry fhandle -> Bool
-prefixEntryInvariant FullEntry{} = True
-prefixEntryInvariant (OverflowEntry e page lenSuffix overflowPages)
-  | Mupdate _ <- e = False
-  | otherwise =
-       not (null overflowPages)
-    && rawPageOverflowPages page == ceilDivPageSize (fromIntegral lenSuffix)
-    && rawPageOverflowPages page == length overflowPages
-
-toFullEntry :: PrefixEntry fhandle -> Entry SerialisedValue (BlobRef (Run fhandle))
-toFullEntry (FullEntry e) =
-    e
-toFullEntry (OverflowEntry e _ lenSuffix overflowPages) =
-    first appendSuffix e
-  where
-    appendSuffix (SerialisedValue prefix) =
-      SerialisedValue $ RB.take (RB.size prefix + fromIntegral lenSuffix) $
-        mconcat (prefix : map rawOverflowPageRawBytes overflowPages)
 
 -- | Returns 'Nothing' if no input 'Run' contains any entries.
 -- The list of runs should be sorted from new to old.
@@ -111,11 +61,8 @@ new ::
   -> [Run (FS.Handle h)]
   -> IO (Maybe (Merge (FS.Handle h)))
 new fs mergeLevel mergeMappend targetPaths runs = do
-    mreaders <- newReaders fs runs
-    for mreaders $ \(mergeReaders, firstKey, firstEntry) -> do
-      mergeCurrentKey <- newIORef firstKey
-      mergeCurrentEntry <- newIORef firstEntry
-
+    mreaders <- readersNew fs runs
+    for mreaders $ \mergeReaders -> do
       -- calculate upper bounds based on input runs
       let numEntries = coerce (sum @[] @Int) (map Run.runNumEntries runs)
       let numPages = sum (map Run.sizeInPages runs)
@@ -125,57 +72,90 @@ new fs mergeLevel mergeMappend targetPaths runs = do
 
 data StepResult fhandle = MergeInProgress | MergeComplete !(Run fhandle)
 
--- | Do a fixed number of steps of merging. Each step reads a single entry, then
--- either resolves it with the previous one or writes the previous one out to
--- the run being created.
+stepsInvariant :: Int -> (Int, StepResult a) -> Bool
+stepsInvariant requestedSteps = \case
+    (n, MergeInProgress) -> n >= requestedSteps
+    _                    -> True
+
+-- | Do at least a given number of steps of merging. Each step reads a single
+-- entry, then either resolves the previous entry with the new one or writes it
+-- out to the run being created.
+-- Returns the number of input entries read, which is guaranteed to be at least
+-- as many as requested (unless the merge is complete).
+--
+-- If this returns 'MergeComplete', do not use the `Merge` any more!
 --
 -- The resulting run has a reference count of 1.
---
--- Do not call again after 'MergeComplete' has been returned!
 steps ::
      HasFS IO h
   -> Merge (FS.Handle h)
-  -> Int
-  -> IO (StepResult (FS.Handle h))
-steps fs Merge {..} = \numSteps -> do
-    curKey <- readIORef mergeCurrentKey
-    curEntry <- readIORef mergeCurrentEntry
-    go curKey curEntry numSteps
+  -> Int  -- ^ How many input entries to consume (at least)
+  -> IO (Int, StepResult (FS.Handle h))
+steps fs Merge {..} requestedSteps =
+    (\res -> assert (stepsInvariant requestedSteps res) res) <$> go 0
   where
-    go !curKey !curEntry n
-      | n <= 0 = do
-          writeIORef mergeCurrentKey curKey
-          writeIORef mergeCurrentEntry curEntry
-          return MergeInProgress
-    go !curKey !curEntry !n =
-      getFromReaders fs mergeReaders >>= \case
-        Just (newKey, newEntry) | newKey == curKey -> do
-          -- still same key: don't write yet, resolve!
-          let resolvedEntry = resolveEntries mergeMappend curEntry newEntry
-          go curKey resolvedEntry (n-1)
-        Just (newKey, newEntry) -> do
-          -- new key: write old entry!
-          writeEntry fs mergeLevel mergeBuilder curKey curEntry
-          go newKey newEntry (n-1)
-        Nothing -> do
-          -- finished reading: write last entry!
-          writeEntry fs mergeLevel mergeBuilder curKey curEntry
-          run <- Run.fromMutable fs (Run.RefCount 1) mergeBuilder
-          -- All Readers have been drained, the builder finalised.
-          -- No further cleanup required.
-          return (MergeComplete run)
+    go !n
+      | n >= requestedSteps =
+          return (n, MergeInProgress)
+      | otherwise = do
+          (key, entry, hasMore) <- readersPop fs mergeReaders
+          case hasMore of
+            HasMore ->
+              handleEntry (n + 1) key entry
+            Drained -> do
+              -- no future entries, no previous entry to resolve, just write!
+              writeRawEntry fs mergeLevel mergeBuilder key entry
+              completeMerge (n + 1)
 
-resolveEntries :: Mappend -> PrefixEntry h -> PrefixEntry h -> PrefixEntry h
-resolveEntries mrg e1 e2 =
-    assert (prefixEntryInvariant e1) $
-    assert (prefixEntryInvariant e2) $
-    case e1 of
-      FullEntry (Mupdate v1) ->
-        -- for monoidal resolution, we need the full second value to be present
-        FullEntry (combine mrg (Mupdate v1) (toFullEntry e2))
-      _ ->
-        -- otherwise, just take the first one (OverflowEntry can't be Mupdate!)
-        e1
+    handleEntry !n !key (Reader.RawEntry (Mupdate v)) =
+        -- resolve small mupsert vals with the following entries of the same key
+        handleMupdate n key v
+    handleEntry !n !key (Reader.RawEntryOverflow (Mupdate v) _ len overflowPages) =
+        -- resolve large mupsert vals with following entries of the same key
+        handleMupdate n key (Reader.appendOverflow len overflowPages v)
+    handleEntry !n !key entry = do
+        -- otherwise, we can just drop all following entries of same key
+        writeRawEntry fs mergeLevel mergeBuilder key entry
+        dropRemaining n key
+
+    -- the value is from a mupsert, complete (not just a prefix)
+    handleMupdate !n !key !v = do
+        nextKey <- readersPeekKey mergeReaders
+        if nextKey /= key
+          then do
+            -- resolved all entries for this key, write it
+            writeSerialisedEntry fs mergeLevel mergeBuilder key (Mupdate v)
+            go n
+          else do
+            (_, nextEntry, hasMore) <- readersPop fs mergeReaders
+            -- for resolution, we need the full second value to be present
+            let resolved = combine mergeMappend
+                             (Mupdate v)
+                             (Reader.rawToFullEntry nextEntry)
+            case hasMore of
+              HasMore -> case resolved of
+                Mupdate v' ->
+                  -- still a mupsert, keep resolving
+                  handleMupdate (n + 1) key v'
+                _ -> do
+                  -- done with this key, now the remaining entries are obsolete
+                  writeSerialisedEntry fs mergeLevel mergeBuilder key resolved
+                  dropRemaining (n + 1) key
+              Drained -> do
+                writeSerialisedEntry fs mergeLevel mergeBuilder key resolved
+                completeMerge (n + 1)
+
+    dropRemaining !n !key = do
+        (dropped, hasMore) <- readersDropWhileKey fs mergeReaders key
+        case hasMore of
+          HasMore -> go (n + dropped)
+          Drained -> completeMerge (n + dropped)
+
+    completeMerge !n = do
+        -- All Readers have been drained, the builder finalised.
+        -- No further cleanup required.
+        run <- Run.fromMutable fs (Run.RefCount 1) mergeBuilder
+        return (n, MergeComplete run)
 
 -- | This function should be called when discarding a 'Merge' before it
 -- was done (i.e. returned 'MergeComplete'). This removes the incomplete files
@@ -188,7 +168,7 @@ close ::
   -> IO ()
 close fs Merge {..} = do
     Builder.close fs mergeBuilder
-    closeReaders fs mergeReaders
+    readersClose fs mergeReaders
 
 {-------------------------------------------------------------------------------
   Read
@@ -199,13 +179,16 @@ close fs Merge {..} = do
 -- run they came from. This is important for resolving multiple entries with the
 -- same key into one.
 --
--- Construct with 'newReaders', then keep calling 'getFromReaders'.
--- If aborting early, remember to call 'closeReaders'!
+-- Construct with 'readersNew', then keep calling 'readersPop'.
+-- If aborting early, remember to call 'readersClose'!
 data Readers fhandle = Readers {
-      readersHeap     :: !(Heap.MutableHeap RealWorld (ReadCtx fhandle))
+      readersHeap :: !(Heap.MutableHeap RealWorld (ReadCtx fhandle))
       -- | Since there is always one reader outside of the heap, we need to
-      -- store it separately.
-    , readersLastRead :: !(IORef (RunReader fhandle, ReaderNumber))
+      -- store it separately. This also contains the next k\/op to yield, unless
+      -- all readers are drained, i.e. both:
+      -- 1. the reader it contains is empty
+      -- 2. the heap is empty
+    , readersNext :: !(IORef (ReadCtx fhandle))
     }
 
 newtype ReaderNumber = ReaderNumber Int
@@ -223,7 +206,7 @@ data ReadCtx fhandle = ReadCtx {
       -- Using an 'STRef' could avoid reallocating the record for every entry,
       -- but that might not be straightforward to integrate with the heap.
       readCtxHeadKey   :: !SerialisedKey
-    , readCtxHeadEntry :: !(PrefixEntry fhandle)
+    , readCtxHeadEntry :: !(Reader.RawEntry fhandle)
       -- We could get rid of this by making 'LoserTree' stable (for which there
       -- is a prototype already).
       -- Alternatively, if we decide to have an invariant that the number in
@@ -242,31 +225,82 @@ instance Ord (ReadCtx fhandle) where
 
 -- | On equal keys, elements from runs earlier in the list are yielded first.
 -- This means that the list of runs should be sorted from new to old.
-newReaders ::
+readersNew ::
      HasFS IO h
   -> [Run (FS.Handle h)]
-  -> IO (Maybe (Readers (FS.Handle h), SerialisedKey, PrefixEntry (FS.Handle h)))
-newReaders fs runs = do
+  -> IO (Maybe (Readers (FS.Handle h)))
+readersNew fs runs = do
     readers <- zipWithM (fromRun . ReaderNumber) [1..] runs
     (readersHeap, firstReadCtx) <- Heap.newMutableHeap (catMaybes readers)
-    for firstReadCtx $ \ReadCtx {..} -> do
-      readersLastRead <- newIORef (readCtxReader, readCtxNumber)
-      return (Readers {..}, readCtxHeadKey, readCtxHeadEntry)
+    for firstReadCtx $ \readCtx -> do
+      readersNext <- newIORef readCtx
+      return Readers {..}
   where
     fromRun n run = nextReadCtx fs n =<< Reader.new fs run
 
-getFromReaders ::
+readersPeekKey ::
+     Readers (FS.Handle h)
+  -> IO SerialisedKey
+readersPeekKey Readers {..} = do
+    readCtxHeadKey <$> readIORef readersNext
+
+-- | Once a function returned 'Drained', do not use the 'Readers' any more!
+data HasMore = HasMore | Drained
+
+readersPop ::
      HasFS IO h
   -> Readers (FS.Handle h)
-  -> IO (Maybe (SerialisedKey, PrefixEntry (FS.Handle h)))
-getFromReaders fs Readers {..} = do
-    (reader, n) <- readIORef readersLastRead
-    mNext <- nextReadCtx fs n reader >>= \case
+  -> IO (SerialisedKey, Reader.RawEntry (FS.Handle h), HasMore)
+readersPop fs r@Readers {..} = do
+    ReadCtx {..} <- readIORef readersNext
+    hasMore <- readersDrop fs r readCtxNumber readCtxReader
+    return (readCtxHeadKey, readCtxHeadEntry, hasMore)
+
+readersDrop ::
+     HasFS IO h
+  -> Readers (FS.Handle h)
+  -> ReaderNumber
+  -> RunReader (FS.Handle h)
+  -> IO HasMore
+readersDrop fs Readers {..} number reader = do
+    mNext <- nextReadCtx fs number reader >>= \case
       Nothing  -> Heap.extract readersHeap
       Just ctx -> Just <$> Heap.replaceRoot readersHeap ctx
-    for mNext $ \ReadCtx {..} -> do
-      writeIORef readersLastRead (readCtxReader, readCtxNumber)
-      return (readCtxHeadKey, readCtxHeadEntry)
+    case mNext of
+      Nothing ->
+        return Drained
+      Just next -> do
+        writeIORef readersNext next
+        return HasMore
+
+readersDropWhileKey ::
+     HasFS IO h
+  -> Readers (FS.Handle h)
+  -> SerialisedKey
+  -> IO (Int, HasMore)  -- ^ How many were dropped?
+readersDropWhileKey fs Readers {..} key = do
+    cur <- readIORef readersNext
+    if readCtxHeadKey cur == key
+      then go 0 cur
+      else return (0, HasMore)  -- nothing to do
+  where
+    -- invariant: @readCtxHeadKey == key@
+    go !n ReadCtx {readCtxNumber, readCtxReader} = do
+        mNext <- nextReadCtx fs readCtxNumber readCtxReader >>= \case
+          Nothing  -> Heap.extract readersHeap
+          Just ctx -> Just <$> Heap.replaceRoot readersHeap ctx
+        let !n' = n + 1
+        case mNext of
+          Nothing -> do
+            return (n', Drained)
+          Just next -> do
+            -- hasMore
+            if readCtxHeadKey next == key
+              then
+                go n' next
+              else do
+                writeIORef readersNext next
+                return (n', HasMore)
 
 nextReadCtx ::
      HasFS IO h
@@ -278,80 +312,84 @@ nextReadCtx fs readCtxNumber readCtxReader = do
     case res of
       Reader.Empty -> do
         return Nothing
-      Reader.ReadSmallEntry readCtxHeadKey entry -> do
-        -- Note that this small entry could be the only one on the page. We
-        -- only care about it being small, not single-entry, since it could
-        -- still end up sharing a page with other entries in the merged run.
-        -- TODO(optimise): This currently doesn't fully exploit the case where
-        -- there is a single page small entry on the page which again ends up
-        -- as the only entry of a page. In that case we could have copied the
-        -- RawPage (but we find out too late to easily exploit it).
-        let readCtxHeadEntry = FullEntry entry
-        return (Just ReadCtx {..})
-      Reader.ReadLargeEntry readCtxHeadKey entry rawPage lenSuffix overflowPages -> do
-        let overflowEntry = OverflowEntry entry rawPage lenSuffix overflowPages
-        let readCtxHeadEntry = case entry of
-              Mupdate _ -> FullEntry (toFullEntry overflowEntry)
-              _         -> overflowEntry
+      Reader.ReadEntry readCtxHeadKey readCtxHeadEntry ->
         return (Just ReadCtx {..})
 
 -- | Only call when aborting before all readers have been drained.
-closeReaders ::
+readersClose ::
      HasFS IO h
   -> Readers (FS.Handle h)
   -> IO ()
-closeReaders fs Readers {..} = do
-    (reader, _) <- readIORef readersLastRead
-    Reader.close fs reader
-    go
+readersClose fs Readers {..} = do
+    ReadCtx {readCtxReader} <- readIORef readersNext
+    Reader.close fs readCtxReader
+    closeHeap
   where
-    go = Heap.extract readersHeap >>= \case
+    closeHeap =
+        Heap.extract readersHeap >>= \case
           Nothing -> return ()
           Just ReadCtx {readCtxReader} -> do
             Reader.close fs readCtxReader
-            go
+            closeHeap
 
 {-------------------------------------------------------------------------------
   Write
 -------------------------------------------------------------------------------}
 
-writeEntry ::
+writeRawEntry ::
      HasFS IO h
   -> Level
   -> RunBuilder (FS.Handle h)
   -> SerialisedKey
-  -> PrefixEntry (FS.Handle h)
+  -> Reader.RawEntry (FS.Handle h)
   -> IO ()
-writeEntry fs level builder key = \case
-    FullEntry entry -> do
-      -- simply add entry
-      when (shouldWriteEntry entry) $
-        Builder.addKeyOp fs builder key =<< traverse resolveBlobRef entry
-    e@(OverflowEntry entryPrefix rawPage _ overflowPages) ->
-      assert (entryWouldFitInPage key (fmap blobRefSpan entryPrefix)) $
-      assert (prefixEntryInvariant e) $
-      assert (shouldWriteEntry entryPrefix) $  -- Delete can't overflow
-        if null entryPrefix  -- has blob?
-        then do
-          -- no blob, directly copy all pages as they are
-          Builder.addLargeSerialisedKeyOp fs builder key rawPage overflowPages
-        else do
-          -- has blob, we can't just copy the first page, fall back
-          -- we simply append the overflow pages to the value
-          Builder.addKeyOp fs builder key
-            =<< traverse resolveBlobRef (toFullEntry e)
-          -- TODO(optimise): This copies the overflow pages unnecessarily.
-          -- We could extend the RunBuilder API to allow to either:
-          -- 1. write an Entry (containing the value prefix) + [RawOverflowPage]
-          -- 2. write a RawPage + SerialisedBlob + [RawOverflowPage], rewriting
-          --      the raw page's blob offset (slightly faster, but a bit hacky)
+writeRawEntry fs level builder key (Reader.RawEntry entryFull) =
+      -- small
+      -- Note that this small entry could be the only one on the page. We only
+      -- care about it being small, not single-entry, since it could still end
+      -- up sharing a page with other entries in the merged run.
+      -- TODO(optimise): This doesn't fully exploit the case where there is a
+      -- single page small entry on the page which again ends up as the only
+      -- entry of a page. In that case we could have copied the RawPage (but we
+      -- find out too late to easily exploit it).
+      writeSerialisedEntry fs level builder key entryFull
+writeRawEntry fs level builder key entry@(Reader.RawEntryOverflow prefix page _ overflowPages)
+  | InsertWithBlob {} <- prefix =
+      assert (shouldWriteEntry level prefix) $  -- large, can't be delete
+        -- has blob, we can't just copy the first page, fall back
+        -- we simply append the overflow pages to the value
+        Builder.addKeyOp fs builder key
+          =<< traverse resolveBlobRef (Reader.rawToFullEntry entry)
+        -- TODO(optimise): This copies the overflow pages unnecessarily.
+        -- We could extend the RunBuilder API to allow to either:
+        -- 1. write an Entry (containing the value prefix) + [RawOverflowPage]
+        -- 2. write a RawPage + SerialisedBlob + [RawOverflowPage], rewriting
+        --      the raw page's blob offset (slightly faster, but a bit hacky)
+  | otherwise =
+      assert (shouldWriteEntry level prefix) $  -- large, can't be delete
+        -- no blob, directly copy all pages as they are
+        Builder.addLargeSerialisedKeyOp fs builder key page overflowPages
   where
-    -- we could also turn Mupdate into Insert, but no need to complicate things
-    shouldWriteEntry = case level of
-        MidLevel -> const True
-        LastLevel -> \case
-          Delete -> False
-          _      -> True
-
     resolveBlobRef (BlobRef run blobSpan) =
       Run.readBlob fs run blobSpan
+
+writeSerialisedEntry ::
+     HasFS IO h
+  -> Level
+  -> RunBuilder (FS.Handle h)
+  -> SerialisedKey
+  -> Entry SerialisedValue (BlobRef (Run (FS.Handle h)))
+  -> IO ()
+writeSerialisedEntry fs level builder key entry =
+    when (shouldWriteEntry level entry) $
+      Builder.addKeyOp fs builder key =<< traverse resolveBlobRef entry
+  where
+    resolveBlobRef (BlobRef run blobSpan) =
+      Run.readBlob fs run blobSpan
+
+-- One the last level we could also turn Mupdate into Insert,
+-- but no need to complicate things.
+shouldWriteEntry :: Level -> Entry v b -> Bool
+shouldWriteEntry level = \case
+    Delete -> level == MidLevel
+    _      -> True

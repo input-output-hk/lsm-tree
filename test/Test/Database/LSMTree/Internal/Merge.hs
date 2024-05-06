@@ -22,7 +22,7 @@ import qualified System.FS.API as FS
 import qualified System.FS.API.Lazy as FS
 import qualified System.FS.IO as FsIO
 import qualified System.IO.Temp as Temp
-import           Test.Database.LSMTree.Internal.Run (isLargeKOp)
+import           Test.Database.LSMTree.Internal.Run (isLargeKOp, readKOps)
 import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.QuickCheck
@@ -59,7 +59,8 @@ prop_MergeDistributes ::
      IO Property
 prop_MergeDistributes fs level stepSize (fmap unTypedWriteBuffer -> wbs) = do
     runs <- sequenceA $ zipWith flush [10..] wbs
-    lhs <- mergeRuns fs level 0 runs stepSize
+    let stepsNeeded = sum (map (Entry.unNumEntries . WB.numEntries) wbs)
+    (stepsDone, lhs) <- mergeRuns fs level 0 runs stepSize
 
     rhs <- flush 1 (mergeWriteBuffers level wbs)
 
@@ -68,20 +69,32 @@ prop_MergeDistributes fs level stepSize (fmap unTypedWriteBuffer -> wbs) = do
     rhsKOpsFile <- FS.hGetAll fs (Run.runKOpsFile rhs)
     rhsBlobFile <- FS.hGetAll fs (Run.runBlobFile rhs)
 
+    lhsKOps <- readKOps fs lhs
+    rhsKOps <- readKOps fs rhs
+
     -- cleanup
     traverse_ (Run.removeReference fs) runs
     Run.removeReference fs lhs
     Run.removeReference fs rhs
 
     return $ stats $
-           Run.runNumEntries lhs === Run.runNumEntries rhs
-           -- we can't just test bloom filter equality, their sizes may differ.
-      .&&. Bloom.length (Run.runFilter lhs) >= Bloom.length (Run.runFilter rhs)
-           -- the index is equal, but only because range finder precision is
+           counterexample "numEntries"
+           (Run.runNumEntries lhs === Run.runNumEntries rhs)
+      .&&. -- we can't just test bloom filter equality, their sizes may differ.
+           counterexample "runFilter"
+           (Bloom.length (Run.runFilter lhs) >= Bloom.length (Run.runFilter rhs))
+      .&&. -- the index is equal, but only because range finder precision is
            -- always 0 for the numbers of entries we are dealing with.
-      .&&. Run.runIndex lhs === Run.runIndex rhs
-      .&&. lhsKOpsFile === rhsKOpsFile
-      .&&. lhsBlobFile === rhsBlobFile
+           counterexample "runIndex"
+           (Run.runIndex lhs === Run.runIndex rhs)
+      .&&. counterexample "kops"
+           (lhsKOps === rhsKOps)
+      .&&. counterexample "kopsFile"
+           (lhsKOpsFile === rhsKOpsFile)
+      .&&. counterexample "blobFile"
+           (lhsBlobFile === rhsBlobFile)
+      .&&. counterexample ("step counting")
+           (stepsDone === stepsNeeded)
   where
     flush n = Run.fromWriteBuffer fs (RunFsPaths n)
 
@@ -122,10 +135,10 @@ prop_CloseMerge fs level (Positive stepSize) (fmap unTypedWriteBuffer -> wbs) = 
         Just merge -> do
           -- just do a few steps once, ideally not completing the merge
           Merge.steps fs merge stepSize >>= \case
-            Merge.MergeComplete run -> do
+            (_, Merge.MergeComplete run) -> do
               Run.removeReference fs run  -- run not needed, close
               return Nothing  -- not in progress
-            Merge.MergeInProgress ->
+            (_, Merge.MergeInProgress) ->
               return (Just merge)
 
 {-------------------------------------------------------------------------------
@@ -140,16 +153,16 @@ mergeRuns ::
      Int ->
      [Run.Run (FS.Handle h)] ->
      StepSize ->
-     IO (Run.Run (FS.Handle h))
-mergeRuns fs level n runs (Positive stepSize) = do
-    Merge.new fs level mappendValues (RunFsPaths n) runs >>= \case
-      Nothing -> Run.fromWriteBuffer fs (RunFsPaths n) WB.empty
-      Just m  -> go m
+     IO (Int, Run.Run (FS.Handle h))
+mergeRuns fs level runNumber runs (Positive stepSize) = do
+    Merge.new fs level mappendValues (RunFsPaths runNumber) runs >>= \case
+      Nothing -> (,) 0 <$> Run.fromWriteBuffer fs (RunFsPaths runNumber) WB.empty
+      Just m  -> go 0 m
   where
-    go m =
+    go !steps m =
         Merge.steps fs m stepSize >>= \case
-          Merge.MergeComplete run -> return run
-          Merge.MergeInProgress   -> go m
+          (n, Merge.MergeComplete run) -> return (steps + n, run)
+          (n, Merge.MergeInProgress)   -> go (steps + n) m
 
 mergeWriteBuffers :: Merge.Level -> [WriteBuffer] -> WriteBuffer
 mergeWriteBuffers level =
