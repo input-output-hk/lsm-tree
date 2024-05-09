@@ -25,6 +25,7 @@ import           Database.LSMTree.Internal.Serialise (SerialisedBlob (..),
                      SerialisedKey (..), SerialisedValue (..))
 import           Database.LSMTree.Internal.Serialise.Class
 import           Database.LSMTree.Internal.Vector
+import           Database.LSMTree.Internal.WriteBuffer (WriteBuffer (..))
 import           GHC.Generics
 import           GHC.Word
 import qualified System.FS.API as FS
@@ -177,3 +178,5 @@ deriving newtype instance SerialiseKey SerialisedKey
 deriving newtype instance SerialiseValue SerialisedValue
 
 deriving newtype instance SerialiseValue SerialisedBlob
+
+deriving stock instance Eq WriteBuffer

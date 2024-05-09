@@ -18,6 +18,7 @@ data BlobRef run = BlobRef {
       blobRefRun  :: !run
     , blobRefSpan :: {-# UNPACK #-} !BlobSpan
     }
+  deriving stock (Eq, Show)
 
 instance NFData run => NFData (BlobRef run) where
   rnf (BlobRef a b) = rnf a `seq` rnf b

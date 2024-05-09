@@ -218,6 +218,7 @@ test-suite lsm-tree-test
     Test.Database.LSMTree.Internal.IndexCompact
     Test.Database.LSMTree.Internal.Lookup
     Test.Database.LSMTree.Internal.Merge
+    Test.Database.LSMTree.Internal.Merge.Readers
     Test.Database.LSMTree.Internal.Monkey
     Test.Database.LSMTree.Internal.PageAcc
     Test.Database.LSMTree.Internal.PageAcc1

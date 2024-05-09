@@ -174,7 +174,7 @@ type role TypedWriteBuffer nominal nominal nominal
 newtype TypedWriteBuffer k v blob = TypedWriteBuffer {
     unTypedWriteBuffer :: WriteBuffer
   }
-  deriving stock Show
+  deriving stock (Eq, Show)
 
 instance Arbitrary WriteBuffer where
   arbitrary = coerce $

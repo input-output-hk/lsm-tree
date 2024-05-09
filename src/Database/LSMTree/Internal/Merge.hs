@@ -9,6 +9,15 @@ module Database.LSMTree.Internal.Merge (
   , StepResult (..)
   , steps
   , close
+
+    -- TODO: internal?
+  , HasMore (..)
+  , Readers
+  , readersNew
+  , readersPeekKey
+  , readersPop
+  , readersDropWhileKey
+  , readersClose
   ) where
 
 import           Control.Exception (assert)
@@ -246,6 +255,7 @@ readersPeekKey Readers {..} = do
 
 -- | Once a function returned 'Drained', do not use the 'Readers' any more!
 data HasMore = HasMore | Drained
+  deriving (Eq, Show)
 
 readersPop ::
      HasFS IO h

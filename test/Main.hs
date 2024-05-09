@@ -8,6 +8,7 @@ import qualified Test.Database.LSMTree.Internal.Entry
 import qualified Test.Database.LSMTree.Internal.IndexCompact
 import qualified Test.Database.LSMTree.Internal.Lookup
 import qualified Test.Database.LSMTree.Internal.Merge
+import qualified Test.Database.LSMTree.Internal.Merge.Readers
 import qualified Test.Database.LSMTree.Internal.Monkey
 import qualified Test.Database.LSMTree.Internal.PageAcc
 import qualified Test.Database.LSMTree.Internal.PageAcc1
@@ -31,6 +32,7 @@ main = defaultMain $ testGroup "lsm-tree"
     , Test.Database.LSMTree.Internal.Entry.tests
     , Test.Database.LSMTree.Internal.Lookup.tests
     , Test.Database.LSMTree.Internal.Merge.tests
+    , Test.Database.LSMTree.Internal.Merge.Readers.tests
     , Test.Database.LSMTree.Internal.Monkey.tests
     , Test.Database.LSMTree.Internal.PageAcc.tests
     , Test.Database.LSMTree.Internal.PageAcc1.tests
