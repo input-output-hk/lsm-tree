@@ -186,6 +186,7 @@ data RawPageIndex entry =
      | IndexEntryOverflow !SerialisedKey !entry !Word32
   deriving (Eq, Functor, Show)
 
+{-# INLINE rawPageIndex #-}
 rawPageIndex
     :: RawPage
     -> Word16
