@@ -20,9 +20,9 @@ module Database.LSMTree.Extras.Generators (
   , shrinkTypedWriteBuffer
     -- * WithSerialised
   , WithSerialised (..)
-    -- * Range-finder precision
-  , RFPrecision (..)
-  , rfprecInvariant
+    -- * Other number newtypes
+  , rfpInvariant
+  , chunkSizeInvariant
     -- * A (logical\/true) page
     -- ** A true page
   , TruePageSummary (..)
@@ -44,9 +44,6 @@ module Database.LSMTree.Extras.Generators (
   , genPages
   , mkPages
   , pagesInvariant
-    -- * Chunking size
-  , ChunkSize (..)
-  , chunkSizeInvariant
     -- * Serialised keys\/values\/blobs
   , genRawBytes
   , genRawBytesN
@@ -72,9 +69,10 @@ import           Database.LSMTree.Extras
 import           Database.LSMTree.Extras.Orphans ()
 import           Database.LSMTree.Internal.BlobRef (BlobSpan (..))
 import           Database.LSMTree.Internal.Entry (Entry (..), NumEntries (..))
-import           Database.LSMTree.Internal.IndexCompact (PageNo (..),
-                     rangeFinderPrecisionBounds, suggestRangeFinderPrecision)
-import           Database.LSMTree.Internal.IndexCompactAcc (Append (..))
+import           Database.LSMTree.Internal.IndexCompact (PageNo (..), RFP (..),
+                     suggestRangeFinderPrecision, unsafeMkRFP)
+import           Database.LSMTree.Internal.IndexCompactAcc (Append (..),
+                     ChunkSize (..), unsafeMkChunkSize)
 import qualified Database.LSMTree.Internal.Merge as Merge
 import           Database.LSMTree.Internal.RawBytes as RB
 import           Database.LSMTree.Internal.Serialise
@@ -262,25 +260,6 @@ instance SerialiseKey k => SerialiseKey (WithSerialised k) where
   deserialiseKey bytes = TestKey (S.Class.deserialiseKey bytes) (SerialisedKey bytes)
 
 {-------------------------------------------------------------------------------
-  Range-finder precision
--------------------------------------------------------------------------------}
-
-newtype RFPrecision = RFPrecision Int
-  deriving stock (Show, Generic)
-  deriving newtype Num
-  deriving anyclass NFData
-
-instance Arbitrary RFPrecision where
-  arbitrary = RFPrecision <$> QC.chooseInt (rfprecLB, rfprecUB)
-    where (rfprecLB, rfprecUB) = rangeFinderPrecisionBounds
-  shrink (RFPrecision x) =
-      [RFPrecision x' | x' <- shrink x , rfprecInvariant (RFPrecision x')]
-
-rfprecInvariant :: RFPrecision -> Bool
-rfprecInvariant (RFPrecision x) = x >= rfprecLB && x <= rfprecUB
-  where (rfprecLB, rfprecUB) = rangeFinderPrecisionBounds
-
-{-------------------------------------------------------------------------------
   Other number newtypes
 -------------------------------------------------------------------------------}
 
@@ -291,6 +270,27 @@ instance Arbitrary PageNo where
 instance Arbitrary NumEntries where
   arbitrary = coerce (arbitrary @(QC.NonNegative Int))
   shrink = coerce (shrink @(QC.NonNegative Int))
+
+instance Arbitrary RFP where
+  arbitrary = unsafeMkRFP <$> QC.chooseBoundedIntegral (lb, ub)
+    where (RFP lb, RFP ub) = (minBound, maxBound)
+  shrink (RFP x) =
+      [unsafeMkRFP x' | x' <- shrink x , rfpInvariant (unsafeMkRFP x')]
+
+rfpInvariant :: RFP -> Bool
+rfpInvariant x = x >= lb && x <= ub
+  where (lb, ub) = (minBound, maxBound)
+
+instance Arbitrary ChunkSize where
+  arbitrary = unsafeMkChunkSize <$> QC.chooseBoundedIntegral (1, 20)
+  shrink (ChunkSize csize) = [
+        unsafeMkChunkSize csize'
+      | csize' <- shrink csize
+      , chunkSizeInvariant (unsafeMkChunkSize csize')
+      ]
+
+chunkSizeInvariant :: ChunkSize -> Bool
+chunkSizeInvariant (ChunkSize csize) = csize > 0
 
 {-------------------------------------------------------------------------------
   True page
@@ -347,7 +347,7 @@ shrinkLogicalPageSummary = \case
 -- sorted within a page and across pages). Pages are partitioned, meaning all
 -- keys inside a page have the same range-finder bits.
 data Pages fp k = Pages {
-    getRangeFinderPrecision :: RFPrecision
+    getRangeFinderPrecision :: RFP
   , getPages                :: [fp k]
   }
   deriving stock (Show, Generic, Functor)
@@ -388,9 +388,9 @@ toAppends (Pages _ ps) = fmap (toAppend . fmap serialiseKey) ps
 
 labelPages :: LogicalPageSummaries k -> (Property -> Property)
 labelPages ps =
-      QC.tabulate "RFPrecision: optimal" [show suggestedRfprec]
-    . QC.tabulate "RFPrecision: actual" [show actualRfprec]
-    . QC.tabulate "RFPrecision: |optimal-actual|" [show dist]
+      QC.tabulate "RFP: optimal" [show suggestedRfp]
+    . QC.tabulate "RFP: actual" [show actualRfp]
+    . QC.tabulate "RFP: |optimal-actual|" [show dist]
     . QC.tabulate "# True pages" [showPowersOf10 nTruePages]
     . QC.tabulate "# Logical pages" [showPowersOf10 nLogicalPages]
     . QC.tabulate "# OnePageOneKey logical pages" [showPowersOf10 n1]
@@ -399,9 +399,9 @@ labelPages ps =
   where
     nLogicalPages = length $ getPages ps
     nTruePages = trueNumberOfPages ps
-    actualRfprec = getRangeFinderPrecision ps
-    suggestedRfprec = RFPrecision $ suggestRangeFinderPrecision (trueNumberOfPages ps)
-    dist = abs (suggestedRfprec - actualRfprec)
+    actualRfp@(RFP actualRfp') = getRangeFinderPrecision ps
+    suggestedRfp@(RFP suggestedRfp') = suggestRangeFinderPrecision (trueNumberOfPages ps)
+    dist = abs (suggestedRfp' - actualRfp')
 
     (n1,n2,n3) = counts (getPages ps)
 
@@ -448,11 +448,11 @@ mkPages ::
      forall k. (Ord k, SerialiseKey k)
   => Double -- ^ Probability of a value being larger-than-page
   -> Gen Word32 -- ^ Number of overflow pages for a larger-than-page value
-  -> RFPrecision
+  -> RFP
   -> [k]
   -> Gen (LogicalPageSummaries k)
-mkPages p genN rfprec@(RFPrecision n) =
-    fmap (Pages rfprec) . go . nubOrd . sort
+mkPages p genN rfp@(RFP n) =
+    fmap (Pages rfp) . go . nubOrd . sort
   where
     go :: [k] -> Gen [LogicalPageSummary k]
     go []          = pure []
@@ -462,7 +462,7 @@ mkPages p genN rfprec@(RFPrecision n) =
     go  (k1:k2:ks) = do b <- largerThanPage
                         if | b
                            -> (:) <$> (MultiPageOneKey k1 <$> genN) <*> go (k2 : ks)
-                           | keyTopBits16 n (serialiseKey k1) == keyTopBits16 n (serialiseKey k2)
+                           | keyTopBits16 (fromIntegral n) (serialiseKey k1) == keyTopBits16 (fromIntegral n) (serialiseKey k2)
                            -> (OnePageManyKeys k1 k2 :) <$> go ks
                            | otherwise
                            -> (OnePageOneKey k1 :) <$>  go (k2 : ks)
@@ -471,7 +471,7 @@ mkPages p genN rfprec@(RFPrecision n) =
     largerThanPage = genDouble >>= \x -> pure (x < p)
 
 pagesInvariant :: (Ord k, SerialiseKey k) => LogicalPageSummaries k -> Bool
-pagesInvariant (Pages (RFPrecision rfprec) ps0) =
+pagesInvariant (Pages (RFP rfp) ps0) =
        sort ks   == ks
     && nubOrd ks == ks
     && all partitioned ps0
@@ -479,8 +479,8 @@ pagesInvariant (Pages (RFPrecision rfprec) ps0) =
     ks = flatten ps0
     partitioned = \case
       OnePageOneKey _       -> True
-      OnePageManyKeys k1 k2 -> keyTopBits16 rfprec (serialiseKey k1)
-                               == keyTopBits16 rfprec (serialiseKey k2)
+      OnePageManyKeys k1 k2 -> keyTopBits16 (fromIntegral rfp) (serialiseKey k1)
+                               == keyTopBits16 (fromIntegral rfp) (serialiseKey k2)
       MultiPageOneKey _ _   -> True
 
     flatten :: Eq k => [LogicalPageSummary k] -> [k]
@@ -490,29 +490,6 @@ pagesInvariant (Pages (RFPrecision rfprec) ps0) =
       OnePageOneKey k       -> k : flatten ps
       OnePageManyKeys k1 k2 -> k1 : k2 : flatten ps
       MultiPageOneKey k _   -> k : flatten ps
-
-{-------------------------------------------------------------------------------
-  Chunking size
--------------------------------------------------------------------------------}
-
-newtype ChunkSize = ChunkSize Int
-  deriving stock Show
-  deriving newtype Num
-
-instance Arbitrary ChunkSize where
-  arbitrary = ChunkSize <$> QC.chooseInt (chunkSizeLB, chunkSizeUB)
-  shrink (ChunkSize csize) = [
-        ChunkSize csize'
-      | csize' <- shrink csize
-      , chunkSizeInvariant (ChunkSize csize')
-      ]
-
-chunkSizeLB, chunkSizeUB :: Int
-chunkSizeLB = 1
-chunkSizeUB = 20
-
-chunkSizeInvariant :: ChunkSize -> Bool
-chunkSizeInvariant (ChunkSize csize) = chunkSizeLB <= csize && csize <= chunkSizeUB
 
 {-------------------------------------------------------------------------------
   Serialised keys/values/blobs

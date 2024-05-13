@@ -77,11 +77,8 @@ data RunAcc s = RunAcc {
     , mpageacc             :: !(PageAcc s)
     , entryCount           :: !(PrimVar s Int)
     , rangeFinderCurVal    :: !(PrimVar s Word16)
-    , rangeFinderPrecision :: !RangeFinderPrecision
+    , rangeFinderPrecision :: !Index.RFP
     }
-
--- TODO: make this a newtype and enforce >=0 && <= 16.
-type RangeFinderPrecision = Int
 
 -- | @'new' npages@ starts an incremental run construction.
 --
@@ -89,15 +86,15 @@ type RangeFinderPrecision = Int
 -- entries and pages in the output run.
 new :: NumEntries
     -> NumPages
-    -> Maybe RangeFinderPrecision -- ^ For testing: override the default RFP
-                                  -- which is based on the 'NumPages'.
+    -> Maybe Index.RFP -- ^ For testing: override the default RFP
+                       -- which is based on the 'NumPages'.
     -> ST s (RunAcc s)
 new (NumEntries nentries) npages rangeFinderPrecisionOverride = do
     mbloom <- Bloom.Easy.easyNew 0.1 nentries -- TODO(optimise): tune bloom filter
     let rangeFinderPrecisionDefault = Index.suggestRangeFinderPrecision npages
         rangeFinderPrecision        = fromMaybe rangeFinderPrecisionDefault
                                                 rangeFinderPrecisionOverride
-    mindex <- Index.new rangeFinderPrecision 100 -- TODO(optimise): tune chunk size
+    mindex <- Index.new rangeFinderPrecision (Index.unsafeMkChunkSize 100) -- TODO(optimise): tune chunk size
     mpageacc <- PageAcc.newPageAcc
     entryCount <- newPrimVar 0
     rangeFinderCurVal <- newPrimVar 0
@@ -185,8 +182,8 @@ addSmallKeyOp racc@RunAcc{..} k e =
     -- This is a constraint from the compact index. To do this we remember the
     -- range finder bits of the previously added key and compare them to the
     -- range finder bits of the current key.
-    rfbits <- readPrimVar rangeFinderCurVal             -- previous
-    let !rfbits' = keyTopBits16 rangeFinderPrecision k  -- current
+    rfbits <- readPrimVar rangeFinderCurVal -- previous
+    let !rfbits' = keyTopBits16 (fromIntegral $ Index.unRFP rangeFinderPrecision) k  -- current
 
     pageBoundaryNeeded <-
       if rfbits' == rfbits

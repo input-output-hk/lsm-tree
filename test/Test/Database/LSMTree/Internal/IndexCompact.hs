@@ -281,8 +281,8 @@ prop_total_deserialisation word32s =
     bitVecIsValid (BV.BitVec off len ba) =
       off >= 0 && len >= 0 && ceilDiv8 (off + len) <= sizeofByteArray ba
 
-prop_total_deserialisation_whitebox :: RFPrecision -> Small Word16 -> Small Word16 -> [Word32] -> Property
-prop_total_deserialisation_whitebox (RFPrecision rfprec) numEntries numPages word32s =
+prop_total_deserialisation_whitebox :: RFP -> Small Word16 -> Small Word16 -> [Word32] -> Property
+prop_total_deserialisation_whitebox (RFP rfprec) numEntries numPages word32s =
     prop_total_deserialisation $
          [1]  -- version
       <> word32s  -- primary array, range finder, clash bits, LTP bits, clash map
@@ -298,7 +298,7 @@ prop_total_deserialisation_whitebox (RFPrecision rfprec) numEntries numPages wor
 
 writeIndexCompact :: SerialiseKey k => NumEntries -> ChunkSize -> LogicalPageSummaries k -> (LBS.ByteString, LBS.ByteString, LBS.ByteString)
 writeIndexCompact numEntries (ChunkSize csize) ps = runST $ do
-    let RFPrecision rfprec = getRangeFinderPrecision ps
+    let rfprec = getRangeFinderPrecision ps
     ica <- Cons.new rfprec csize
     cs <- mapM (`append` ica) (toAppends ps)
     (c, index) <- unsafeEnd ica
@@ -313,7 +313,7 @@ fromPageSummaries :: SerialiseKey k => ChunkSize -> LogicalPageSummaries k -> In
 fromPageSummaries (ChunkSize csize) ps =
     fromList rfprec csize (toAppends ps)
   where
-    RFPrecision rfprec = getRangeFinderPrecision ps
+    rfprec = getRangeFinderPrecision ps
 
 fromList :: Int -> Int -> [Append] -> IndexCompact
 fromList rfprec maxcsize apps = runST $ do
@@ -417,7 +417,7 @@ data Chunks = Chunks [Chunk] IndexCompact
 -- ways (e.g. can successfully be queried).
 chunksInvariant :: Chunks -> Bool
 chunksInvariant (Chunks chunks IndexCompact {..}) =
-       rfprecInvariant (RFPrecision icRangeFinderPrecision)
+       rfprecInvariant (unsafeMkRFP icRangeFinderPrecision)
     && VU.length icPrimary == sum (map (VU.length . cPrimary) chunks)
     && VU.length icClashes == VU.length icPrimary
     && VU.length icLargerThanPage == VU.length icPrimary
@@ -429,7 +429,7 @@ instance Arbitrary Chunks where
     let icPrimary = mconcat chunks
     let numPages = VU.length icPrimary
 
-    RFPrecision icRangeFinderPrecision <- arbitrary
+    RFP icRangeFinderPrecision <- arbitrary
     icRangeFinder <- VU.fromList <$> vector (2 ^ icRangeFinderPrecision + 1)
     icClashes <- VU.fromList . map Bit <$> vector numPages
     icLargerThanPage <- VU.fromList . map Bit <$> vector numPages
@@ -442,7 +442,7 @@ instance Arbitrary Chunks where
         { icRangeFinder = VU.take (2 ^ rfprec' + 1) (icRangeFinder index)
         , icRangeFinderPrecision = rfprec'
         }
-    | RFPrecision rfprec' <- shrink (RFPrecision (icRangeFinderPrecision index))
+    | RFP rfprec' <- shrink (unsafeMkRFP (icRangeFinderPrecision index))
     ] ++
     -- shrink number of pages
     [ Chunks (map Chunk chunks') index

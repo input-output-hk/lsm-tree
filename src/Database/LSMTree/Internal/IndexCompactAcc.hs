@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP                 #-}
 {-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -26,6 +27,10 @@ module Database.LSMTree.Internal.IndexCompactAcc (
   , appendSingle
   , appendMulti
   , unsafeEnd
+    -- * Chunk size
+  , ChunkSize (ChunkSize)
+  , mkChunkSize
+  , unsafeMkChunkSize
   ) where
 
 import           Control.DeepSeq (NFData (..))
@@ -34,7 +39,6 @@ import           Control.Monad (forM_, when)
 import           Control.Monad.ST.Strict
 import           Data.Bit hiding (flipBit)
 import           Data.Foldable (toList)
-import           Data.Ix (inRange)
 import           Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import           Data.Map.Range (Bound (..), Clusive (Exclusive, Inclusive))
@@ -100,32 +104,29 @@ data IndexCompactAcc s = IndexCompactAcc {
   , icaLastMinKey           :: !(STRef s (SMaybe SerialisedKey))
   }
 
--- | @'new' rfprec maxcsize@ creates a new mutable index with a range-finder
--- bit-precision of @rfprec, and with a maximum chunk size of @maxcsize@.
+-- | @'new' rfp csize@ creates a new mutable index with a range-finder
+-- bit-precision of @rfp@, and with a maximum chunk size of @csize@.
 --
--- PRECONDITION: maxcsize > 0
---
--- PRECONDITION: @rfprec@ should be within the bounds defined by
--- @rangeFinderPrecisionBounds@.
---
--- Note: after initialisation, both @rfprec@ and @maxcsize@ can no longer be changed.
-new :: Int -> Int -> ST s (IndexCompactAcc s)
-new rfprec maxcsize =
-  assert (inRange rangeFinderPrecisionBounds rfprec && maxcsize > 0) $
+-- Note: after initialisation, both @rfp@ and @csize@ can no longer be changed.
+new :: RFP -> ChunkSize -> ST s (IndexCompactAcc s)
+new rfp csize =
   IndexCompactAcc
     -- Core index structure
-    <$> VUM.new (2 ^ rfprec + 1)
-    <*> pure rfprec
-    <*> (newSTRef . pure =<< VUM.new maxcsize)
-    <*> (newSTRef . pure =<< VUM.new maxcsize)
+    <$> VUM.new (2 ^ rfp' + 1)
+    <*> pure (fromIntegral rfp')
+    <*> (newSTRef . pure =<< VUM.new csize')
+    <*> (newSTRef . pure =<< VUM.new csize')
     <*> newSTRef Map.empty
-    <*> (newSTRef . pure =<< VUM.new maxcsize)
+    <*> (newSTRef . pure =<< VUM.new csize')
     -- Aux information required for incremental construction
-    <*> pure maxcsize
+    <*> pure csize'
     <*> newSTRef 0
     <*> newSTRef SNothing
     <*> newSTRef SNothing
     <*> newSTRef SNothing
+  where
+    rfp' = unRFP rfp
+    csize' = fromIntegral (unChunkSize csize)
 
 -- | Min\/max key-info for pages
 data Append =
@@ -317,6 +318,26 @@ fillRangeFinderToEnd IndexCompactAcc{..} = do
     writeRange icaRangeFinder lb ub x
     writeSTRef icaLastMinRfbits $! SJust $ 2 ^ icaRangeFinderPrecision
 
+{-------------------------------------------------------------------------------
+  Chunk size
+-------------------------------------------------------------------------------}
+
+-- | Size of 'IndexCompact' chunks that can be written to disk incrementally.
+--
+-- INVARIANT: \(ChunkSize > 0\)
+newtype ChunkSize = ChunkSize_ { unChunkSize :: Word32 }
+
+{-# COMPLETE ChunkSize #-}
+pattern ChunkSize :: Word32 -> ChunkSize
+pattern ChunkSize x <- ChunkSize_ x
+
+mkChunkSize :: Word32 -> Maybe ChunkSize
+mkChunkSize x
+  | x > 0     = Just (ChunkSize_ x)
+  | otherwise = Nothing
+
+unsafeMkChunkSize :: Word32 -> ChunkSize
+unsafeMkChunkSize x = assert (x > 0) $ ChunkSize_ x
 
 {-------------------------------------------------------------------------------
   Strict 'Maybe'

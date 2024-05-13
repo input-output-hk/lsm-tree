@@ -42,9 +42,9 @@ benchmarks = bgroup "Bench.Database.LSMTree.Internal.IndexCompact" [
 
 -- | Input environment for benchmarking 'searches'.
 searchEnv ::
-     RFPrecision -- ^ Range-finder bit-precision
-  -> Int         -- ^ Number of pages
-  -> Int         -- ^ Number of searches
+     RFP -- ^ Range-finder bit-precision
+  -> Int -- ^ Number of pages
+  -> Int -- ^ Number of searches
   -> IO (IndexCompact, [SerialisedKey])
 searchEnv rfprec npages nsearches = do
     ic <- constructIndexCompact 100 <$> constructionEnv rfprec npages
@@ -61,9 +61,9 @@ searches ic ks = foldl' (\acc k -> search k ic `deepseq` acc) () ks
 
 -- | Input environment for benchmarking 'constructIndexCompact'.
 constructionEnv ::
-     RFPrecision -- ^ Range-finder bit-precision
-  -> Int         -- ^ Number of pages
-  -> IO (RFPrecision, [Append])
+     RFP -- ^ Range-finder bit-precision
+  -> Int -- ^ Number of pages
+  -> IO (RFP, [Append])
 constructionEnv rfprec n = do
     stdgen <- newStdGen
     let ks = uniformWithoutReplacement @UTxOKey stdgen (2 * n)
@@ -73,9 +73,9 @@ constructionEnv rfprec n = do
 -- | Used for benchmarking the incremental construction of a 'IndexCompact'.
 constructIndexCompact ::
      ChunkSize
-  -> (RFPrecision, [Append]) -- ^ Pages to add in succession
+  -> (RFP, [Append]) -- ^ Pages to add in succession
   -> IndexCompact
-constructIndexCompact (ChunkSize csize) (RFPrecision rfprec, apps) = runST $ do
+constructIndexCompact csize (rfprec, apps) = runST $ do
     ica <- new rfprec csize
     mapM_ (`append` ica) apps
     (_, index) <- unsafeEnd ica

@@ -3,6 +3,7 @@
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeApplications           #-}
@@ -17,8 +18,11 @@ module Database.LSMTree.Internal.IndexCompact (
     IndexCompact (..)
   , PageNo (..)
   , NumPages
-    -- * Invariants and bounds
-  , rangeFinderPrecisionBounds
+    -- * Range-finder precision
+  , RFP (RFP)
+  , unsafeMkRFP
+  , mkRFP
+  , unRFP
   , suggestRangeFinderPrecision
     -- * Queries
   , PageSpan (..)
@@ -42,6 +46,7 @@ module Database.LSMTree.Internal.IndexCompact (
   ) where
 
 import           Control.DeepSeq (NFData (..))
+import           Control.Exception (assert)
 import           Control.Monad (when)
 import           Control.Monad.ST
 import           Data.Bit hiding (flipBit)
@@ -52,7 +57,7 @@ import           Data.ByteString.Short (ShortByteString (..))
 import           Data.Map.Range (Bound (..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isNothing)
 import           Data.Primitive.ByteArray (ByteArray (..), indexByteArray,
                      sizeofByteArray)
 import           Data.Primitive.Types (sizeOf)
@@ -483,24 +488,57 @@ newtype PageNo = PageNo { unPageNo :: Int }
 type NumPages = Int
 
 {-------------------------------------------------------------------------------
-  Invariants
+  Range-finder precision
 -------------------------------------------------------------------------------}
 
--- | Inclusive bounds for range-finder bit-precision.
-rangeFinderPrecisionBounds :: (Int, Int)
-rangeFinderPrecisionBounds = (0, 16)
+-- | Range-finder precision
+--
+-- INVARIANT: \(RFP \in \left[\texttt{minBound}, \texttt{maxBound}\right]\)
+newtype RFP = RFP_ Word32
+  deriving stock (Eq, Ord)
+  deriving newtype (Show, NFData)
+
+{-# COMPLETE RFP #-}
+pattern RFP :: Word32 -> RFP
+pattern RFP x <- RFP_ x
+
+unRFP :: RFP -> Word32
+unRFP (RFP_ x) = x
+
+instance Bounded RFP where
+  minBound = RFP_ 0
+  maxBound = RFP_ 16
+
+mkRFP :: Word32 -> Maybe RFP
+mkRFP x
+  | minBound <= rfp, maxBound <= rfp = Just rfp
+  | otherwise                        = Nothing
+  where rfp = RFP_ x
+
+mkRFP' :: Int -> Maybe RFP
+mkRFP' x
+  | x <= 0    = Nothing
+  | otherwise = mkRFP (fromIntegral x)
+
+unsafeMkRFP :: Word32 -> RFP
+unsafeMkRFP !x =
+    assert (minBound <= rfp) $
+    assert (rfp <= maxBound) $
+    rfp
+  where rfp = RFP_ x
 
 -- | Given the number of expected pages in an index, suggest a range-finder
 -- bit-precision.
 --
 -- https://en.wikipedia.org/wiki/Birthday_problem#Probability_of_a_shared_birthday_(collision)
-suggestRangeFinderPrecision :: NumPages -> Int
+suggestRangeFinderPrecision :: NumPages -> RFP
 suggestRangeFinderPrecision maxPages =
     -- The calculation (before clamping) gives us the /total/ number of bits we
     -- expect to use for prefixes
-    clamp $ ceiling @Double $ 2 * logBase 2 (fromIntegral maxPages)
+    RFP_ $ clamp $ ceiling @Double $ 2 * logBase 2 (fromIntegral maxPages)
   where
-    (lb, ub)              = rangeFinderPrecisionBounds
+    RFP_ lb = minBound
+    RFP_ ub = maxBound
     -- Clamp ensures that we use only bits above @32@ as range finder bits. That
     -- is, we clamp @x@ to the range @[32 .. 48]@.
     clamp x | x < (lb+32) = lb
@@ -733,7 +771,7 @@ fromSBS (SBS ba') = do
     numPages <- getPositive (len64 - 2)
     numEntries <- getPositive (len64 - 1)
 
-    when (rfprec > snd rangeFinderPrecisionBounds) $
+    when (isNothing (mkRFP' rfprec)) $
       Left "Invalid range finder precision"
     let numRanges = 2 ^ rfprec + 1
 
