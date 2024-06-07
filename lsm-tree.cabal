@@ -53,6 +53,7 @@ library
     Database.LSMTree.Internal.Entry
     Database.LSMTree.Internal.IndexCompact
     Database.LSMTree.Internal.IndexCompactAcc
+    Database.LSMTree.Internal.IndexOrdinary
     Database.LSMTree.Internal.Lookup
     Database.LSMTree.Internal.Merge
     Database.LSMTree.Internal.Monkey
