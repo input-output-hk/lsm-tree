@@ -162,7 +162,7 @@ indexSearches !indexes !kopsFiles !ks !rkixs = V.generateM n $ \i -> do
     -- byte array for each 'IOOp'. One optimisation we are planning to
     -- do is to use a cache of re-usable buffers, in which case we
     -- decrease the GC load. TODO: re-usable buffers.
-    !buf <- newPinnedByteArray (size * 4096)
+    !buf <- newAlignedPinnedByteArray (size * 4096) 4096
     pure $! IOOpRead
               h
               (fromIntegral $ Index.unPageNo (pageSpanStart pspan) * 4096)

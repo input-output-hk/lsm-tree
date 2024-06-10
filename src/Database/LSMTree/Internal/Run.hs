@@ -81,6 +81,8 @@ import qualified Database.LSMTree.Internal.WriteBuffer as WB
 import           NoThunks.Class (NoThunks, OnlyCheckWhnfNamed (..))
 import qualified System.FS.API as FS
 import           System.FS.API (HasFS)
+import qualified System.FS.BlockIO.API as FS
+import           System.FS.BlockIO.API (HasBlockIO)
 
 
 -- | The in-memory representation of a completed LSM run.
@@ -159,12 +161,13 @@ close fs Run {..} = do
         FS.hClose fs runBlobFile
 
 -- | Create a run by finalising a mutable run.
-fromMutable :: HasFS IO h -> RefCount -> RunBuilder (FS.Handle h) -> IO (Run (FS.Handle h))
-fromMutable fs refCount builder = do
+fromMutable :: HasFS IO h -> HasBlockIO IO h -> RefCount -> RunBuilder (FS.Handle h) -> IO (Run (FS.Handle h))
+fromMutable fs hbio refCount builder = do
     (runRunFsPaths, runFilter, runIndex, runNumEntries) <-
       Builder.unsafeFinalise fs builder
     runRefCount <- newIORef refCount
     runKOpsFile <- FS.hOpen fs (runKOpsPath runRunFsPaths) FS.ReadMode
+    FS.writeNoCache hbio runKOpsFile True
     runBlobFile <- FS.hOpen fs (runBlobPath runRunFsPaths) FS.ReadMode
     return Run {..}
 
@@ -176,9 +179,12 @@ fromMutable fs refCount builder = do
 -- immediately when they are added to the write buffer, avoiding the need to do
 -- it here.
 fromWriteBuffer ::
-     HasFS IO h -> RunFsPaths -> WriteBuffer
+     HasFS IO h
+  -> HasBlockIO IO h
+  -> RunFsPaths
+  -> WriteBuffer
   -> IO (Run (FS.Handle h))
-fromWriteBuffer fs fsPaths buffer = do
+fromWriteBuffer fs hbio fsPaths buffer = do
     -- We just estimate the number of pages to be one, as the write buffer is
     -- expected to be small enough not to benefit from more precise tuning.
     -- More concretely, no range finder bits will be used anyways unless there
@@ -186,7 +192,7 @@ fromWriteBuffer fs fsPaths buffer = do
     builder <- Builder.new fs fsPaths (WB.numEntries buffer) 1
     for_ (WB.toList buffer) $ \(k, e) ->
       Builder.addKeyOp fs builder k e
-    fromMutable fs (RefCount 1) builder
+    fromMutable fs hbio (RefCount 1) builder
 
 data ChecksumError = ChecksumError FS.FsPath CRC.CRC32C CRC.CRC32C
   deriving Show

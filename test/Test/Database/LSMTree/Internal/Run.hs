@@ -22,6 +22,8 @@ import           Data.Maybe (fromJust)
 import qualified Data.Primitive.ByteArray as BA
 import           System.FilePath
 import qualified System.FS.API as FS
+import qualified System.FS.BlockIO.API as FS
+import qualified System.FS.BlockIO.IO as FsIO
 import qualified System.FS.IO as FsIO
 import qualified System.FS.Sim.Error as FsSim
 import qualified System.FS.Sim.MockFS as FsSim
@@ -48,7 +50,7 @@ import qualified Database.LSMTree.Internal.WriteBuffer as WB
 import qualified FormatPage as Proto
 
 import           Test.Database.LSMTree.Internal.IndexCompact ()
-import           Test.Util.FS (withTempIOHasFS)
+import           Test.Util.FS (withTempIOHasBlockIO)
 
 tests :: TestTree
 tests = testGroup "Database.LSMTree.Internal.Run"
@@ -72,25 +74,25 @@ tests = testGroup "Database.LSMTree.Internal.Run"
               (mkVal ("test-value-" <> BS.concat (replicate 500 "0123456789")))
               Nothing
       , testProperty "prop_WriteAndRead" $ \wb ->
-          ioPropertyWithRealFS $ \fs ->
-            prop_WriteAndRead fs wb
+          ioPropertyWithRealFS $ \fs hbio ->
+            prop_WriteAndRead fs hbio wb
       , testProperty "prop_WriteAndOpen" $ \wb ->
-          ioPropertyWithMockFS $ \fs ->
-            prop_WriteAndOpen fs wb
+          ioPropertyWithRealFS $ \fs hbio ->
+            prop_WriteAndOpen fs hbio wb
       ]
     ]
   where
     withSessionDir = Temp.withSystemTempDirectory "session-run"
 
     -- TODO: Also test file system errors.
-    ioPropertyWithMockFS prop = ioProperty $ do
+    _ioPropertyWithMockFS prop = ioProperty $ do
         (res, mockFS) <-
           FsSim.runSimErrorFS FsSim.empty FsSim.emptyErrors $ \_ fs -> prop fs
         return $ res
             .&&. counterexample "open handles"
                    (FsSim.numOpenHandles mockFS === 0)
 
-    ioPropertyWithRealFS prop = ioProperty $ withTempIOHasFS "session-run" prop
+    ioPropertyWithRealFS prop = ioProperty $ withTempIOHasBlockIO "session-run" prop
 
     mkKey = SerialisedKey . RB.fromByteString
     mkVal = SerialisedValue . RB.fromByteString
@@ -100,9 +102,10 @@ tests = testGroup "Database.LSMTree.Internal.Run"
 testSingleInsert :: FilePath -> SerialisedKey -> SerialisedValue -> Maybe SerialisedBlob -> IO ()
 testSingleInsert sessionRoot key val mblob = do
     let fs = FsIO.ioHasFS (FS.MountPoint sessionRoot)
+    hbio <- FsIO.ioHasBlockIO fs FS.defaultIOCtxParams
     -- flush write buffer
     let wb = WB.addEntryNormal key (N.Insert val mblob) WB.empty
-    run <- fromWriteBuffer fs (RunFsPaths (FS.mkFsPath []) 42) wb
+    run <- fromWriteBuffer fs hbio (RunFsPaths (FS.mkFsPath []) 42) wb
     -- check all files have been written
     let activeDir = sessionRoot
     bsKOps <- BS.readFile (activeDir </> "42.keyops")
@@ -184,9 +187,10 @@ readBlobFromBS bs (BlobSpan offset size) =
 -- TODO: @id === readEntries . flush . toWriteBuffer@ ?
 prop_WriteAndRead ::
      FS.HasFS IO h
+  -> FS.HasBlockIO IO h
   -> TypedWriteBuffer KeyForIndexCompact SerialisedValue SerialisedBlob
   -> IO Property
-prop_WriteAndRead fs (TypedWriteBuffer wb) = do
+prop_WriteAndRead fs hbio (TypedWriteBuffer wb) = do
     run <- flush 42 wb
     rhs <- readKOps fs run
 
@@ -198,7 +202,7 @@ prop_WriteAndRead fs (TypedWriteBuffer wb) = do
              (WB.numEntries wb === runNumEntries run)
       .&&. kops === rhs
   where
-    flush n = fromWriteBuffer fs (RunFsPaths (FS.mkFsPath []) n)
+    flush n = fromWriteBuffer fs hbio (RunFsPaths (FS.mkFsPath []) n)
 
     stats = tabulate "value size" (map (showPowersOf10 . sizeofValue) vals)
           . label (if any isLargeKOp kops then "has large k/op" else "no large k/op")
@@ -211,12 +215,13 @@ prop_WriteAndRead fs (TypedWriteBuffer wb) = do
 -- @openFromDisk . flush === flush@
 prop_WriteAndOpen ::
      FS.HasFS IO h
+  -> FS.HasBlockIO IO h
   -> TypedWriteBuffer KeyForIndexCompact SerialisedValue SerialisedBlob
   -> IO ()
-prop_WriteAndOpen fs (TypedWriteBuffer wb) = do
+prop_WriteAndOpen fs hbio (TypedWriteBuffer wb) = do
     -- flush write buffer
     let fsPaths = RunFsPaths (FS.mkFsPath []) 1337
-    written <- fromWriteBuffer fs fsPaths wb
+    written <- fromWriteBuffer fs hbio fsPaths wb
     loaded <- openFromDisk fs fsPaths
 
     (RefCount 1 @=?) =<< readIORef (runRefCount written)

@@ -2,7 +2,7 @@ module System.FS.BlockIO.Internal (
     ioHasBlockIO
   ) where
 
-import           System.FS.API (HasFS)
+import           System.FS.API (Handle, HasFS)
 import           System.FS.BlockIO.API (HasBlockIO, IOCtxParams)
 import qualified System.FS.BlockIO.Serial as Serial
 import           System.FS.IO (HandleIO)
@@ -16,4 +16,10 @@ ioHasBlockIO ::
      HasFS IO HandleIO
   -> IOCtxParams
   -> IO (HasBlockIO IO HandleIO)
-ioHasBlockIO = Serial.serialHasBlockIO
+ioHasBlockIO = Serial.serialHasBlockIO readNoCache writeNoCache
+
+readNoCache :: Handle HandleIO -> IO Bool
+readNoCache _h = pure False
+
+writeNoCache :: Handle HandleIO -> Bool -> IO ()
+writeNoCache _h _b = pure ()

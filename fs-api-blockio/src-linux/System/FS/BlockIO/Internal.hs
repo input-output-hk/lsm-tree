@@ -4,7 +4,7 @@ module System.FS.BlockIO.Internal (
     ioHasBlockIO
   ) where
 
-import           System.FS.API (HasFS)
+import           System.FS.API (Handle (handleRaw), HasFS)
 import           System.FS.BlockIO.API (HasBlockIO, IOCtxParams)
 #if SERIALBLOCKIO
 import qualified System.FS.BlockIO.Serial as Serial
@@ -12,6 +12,8 @@ import qualified System.FS.BlockIO.Serial as Serial
 import qualified System.FS.BlockIO.Async as Async
 #endif
 import           System.FS.IO (HandleIO)
+import           System.FS.IO.Handle (withOpenHandle)
+import qualified System.Posix.Fcntl.NoCache as Unix
 
 ioHasBlockIO ::
      HasFS IO HandleIO
@@ -20,5 +22,12 @@ ioHasBlockIO ::
 #if SERIALBLOCKIO
 ioHasBlockIO = Serial.serialHasBlockIO
 #else
-ioHasBlockIO = Async.asyncHasBlockIO
+ioHasBlockIO = Async.asyncHasBlockIO readNoCache writeNoCache
 #endif
+
+readNoCache :: Handle HandleIO -> IO Bool
+readNoCache h = withOpenHandle "readNoCache" (handleRaw h) Unix.readFcntlNoCache
+
+writeNoCache :: Handle HandleIO -> Bool -> IO ()
+writeNoCache h b =
+  withOpenHandle "writeNoCache" (handleRaw h) (flip Unix.writeFcntlNoCache b)

@@ -159,7 +159,7 @@ lookupsInBatchesEnv Config {..} = do
     hasBlockIO <- FS.ioHasBlockIO hasFS (fromMaybe FS.defaultIOCtxParams ioctxps)
     let wb = WB.fromMap storedKeys
         fsps = RunFsPaths (FS.mkFsPath []) 0
-    r <- Run.fromWriteBuffer hasFS fsps wb
+    r <- Run.fromWriteBuffer hasFS hasBlockIO fsps wb
     let nentriesReal = unNumEntries $ Run.runNumEntries r
     assert (nentriesReal == nentries) $ pure ()
     let npagesReal = Run.sizeInPages r

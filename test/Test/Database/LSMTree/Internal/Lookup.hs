@@ -286,7 +286,7 @@ prop_roundtripFromWriteBufferLookupIO ::
   -> Property
 prop_roundtripFromWriteBufferLookupIO dats =
     ioProperty $ withTempIOHasBlockIO "prop_roundtripFromWriteBufferLookupIO" $ \hasFS hasBlockIO -> do
-    (runs, wbs) <- mkRuns hasFS
+    (runs, wbs) <- mkRuns hasFS hasBlockIO
     let wbAll = WB.fromMap $ Map.unionsWith (combine resolveV) (fmap WB.toMap wbs)
     real <- lookupsIO
               hasBlockIO
@@ -303,8 +303,8 @@ prop_roundtripFromWriteBufferLookupIO dats =
     -- retrieval yet.
     pure $ opaqueifyBlobs model === opaqueifyBlobs real
   where
-    mkRuns hasFS = first V.fromList . unzip <$> sequence [
-          (,wb) <$> Run.fromWriteBuffer hasFS (RunFsPaths (FS.mkFsPath []) i) wb
+    mkRuns hasFS hasBlockIO = first V.fromList . unzip <$> sequence [
+          (,wb) <$> Run.fromWriteBuffer hasFS hasBlockIO (RunFsPaths (FS.mkFsPath []) i) wb
         | (i, dat) <- zip [0..] (getSmallList dats)
         , let wb = WB.fromMap (runData dat)
         ]

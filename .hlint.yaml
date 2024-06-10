@@ -18,9 +18,13 @@
 - ignore: {name: "Use list literal"} # 1 hint
 - ignore: {name: "Use tuple-section"}
 - ignore: {name: "Use const"}
+<<<<<<< HEAD
 - ignore: {name: "Use :"}
 - ignore: {name: "Redundant <$>"}
 - ignore: {name: "Use zipWithM"}
+=======
+- ignore: {name: "Use section"}
+>>>>>>> 6986480 (WIP: nocache in hasblockio)
 
 # Specify additional command line arguments
 #

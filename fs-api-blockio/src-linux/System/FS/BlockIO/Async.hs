@@ -26,13 +26,20 @@ import           System.IO.Error (ioeSetErrorString, isResourceVanishedError)
 import           System.Posix.Types
 
 -- | IO instantiation of 'HasBlockIO', using @blockio-uring@.
-asyncHasBlockIO :: HasFS IO HandleIO -> API.IOCtxParams -> IO (API.HasBlockIO IO HandleIO)
-asyncHasBlockIO hasFS ctxParams = do
+asyncHasBlockIO ::
+     (Handle HandleIO -> IO Bool)
+  -> (Handle HandleIO -> Bool -> IO ())
+  -> HasFS IO HandleIO
+  -> API.IOCtxParams
+  -> IO (API.HasBlockIO IO HandleIO)
+asyncHasBlockIO readNoCache writeNoCache hasFS ctxParams = do
   ctx <- I.initIOCtx (ctxParamsConv ctxParams)
   pure $ API.HasBlockIO {
       API.close = I.closeIOCtx ctx
     , API.submitIO = submitIO hasFS ctx
     , API.getParams = ctxParams
+    , API.readNoCache
+    , API.writeNoCache
     }
 
 ctxParamsConv :: API.IOCtxParams -> I.IOCtxParams

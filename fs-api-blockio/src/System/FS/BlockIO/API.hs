@@ -55,11 +55,16 @@ data HasBlockIO m h = HasBlockIO {
   , submitIO :: HasCallStack => V.Vector (IOOp (PrimState m) h) -> m (VU.Vector IOResult)
     -- | Retrieve the parameters that this 'HasBlockIO' was initialised with.
   , getParams :: !IOCtxParams
+
+    -- === NoCache
+  , readNoCache :: Handle h -> m Bool
+  , writeNoCache :: Handle h -> Bool -> m ()
   }
 
 instance NFData (HasBlockIO m h) where
-  rnf HasBlockIO{close, submitIO, getParams} =
-      rwhnf close `seq` rwhnf submitIO `seq` rnf getParams
+  rnf (HasBlockIO a b c d e) =
+      rwhnf a `seq` rwhnf b `seq` rnf c `seq`
+      rwhnf d `seq` rwhnf e
 
 -- | Concurrency parameters for initialising a 'HasBlockIO. Can be ignored by
 -- serial implementations.
