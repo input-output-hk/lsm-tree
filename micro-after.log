@@ -1,0 +1,116 @@
+Resolving dependencies...
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 positive lookups/Bloomfilter query
+time                 7.584 μs   (7.560 μs .. 7.612 μs)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 7.589 μs   (7.570 μs .. 7.628 μs)
+std dev              91.60 ns   (55.77 ns .. 146.4 ns)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              8671.991   (8671.961 .. 8672.026)
+  y                  3104.317   (2830.685 .. 3392.746)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 positive lookups/Compact index search
+time                 49.95 μs   (49.81 μs .. 50.08 μs)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 50.18 μs   (50.04 μs .. 50.44 μs)
+std dev              644.4 ns   (445.0 ns .. 905.2 ns)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              2113599.982 (2113599.745 .. 2113600.262)
+  y                  3078.217   (2746.657 .. 3438.612)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 positive lookups/Lookup preparation in memory
+time                 68.39 μs   (68.15 μs .. 68.64 μs)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 68.37 μs   (68.19 μs .. 68.60 μs)
+std dev              671.6 ns   (470.0 ns .. 950.0 ns)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              2122263.960 (2122263.669 .. 2122264.279)
+  y                  3061.494   (2721.080 .. 3404.938)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 positive lookups/Submit IOOps in batches
+time                 1.126 ms   (1.072 ms .. 1.173 ms)
+                     0.967 R²   (0.934 R² .. 0.986 R²)
+mean                 1.657 ms   (1.397 ms .. 2.033 ms)
+std dev              1.116 ms   (747.8 μs .. 1.460 ms)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              117292.012 (117215.308 .. 117363.874)
+  y                  -428.385   (-3068.685 .. 2419.069)
+variance introduced by outliers: 98% (severely inflated)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 positive lookups/Perform intra-page lookups
+time                 85.57 μs   (84.99 μs .. 86.15 μs)
+                     0.999 R²   (0.999 R² .. 1.000 R²)
+mean                 85.83 μs   (85.33 μs .. 86.26 μs)
+std dev              1.025 μs   (814.4 ns .. 1.409 μs)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              80182.054  (80180.471 .. 80183.862)
+  y                  58.127     (-445.564 .. 558.382)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 positive lookups/Batched lookups in IO
+time                 1.344 ms   (1.338 ms .. 1.350 ms)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 1.358 ms   (1.355 ms .. 1.363 ms)
+std dev              14.00 μs   (10.67 μs .. 21.52 μs)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              2314915.299 (2314845.961 .. 2314986.930)
+  y                  6921.274   (3383.779 .. 10502.402)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 negative lookups/Bloomfilter query
+time                 5.165 μs   (5.074 μs .. 5.274 μs)
+                     0.998 R²   (0.997 R² .. 1.000 R²)
+mean                 5.102 μs   (5.077 μs .. 5.153 μs)
+std dev              114.6 ns   (31.71 ns .. 185.3 ns)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              8671.997   (8671.976 .. 8672.022)
+  y                  3093.000   (2826.423 .. 3364.255)
+variance introduced by outliers: 25% (moderately inflated)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 negative lookups/Compact index search
+time                 389.7 ns   (387.0 ns .. 393.7 ns)
+                     1.000 R²   (0.999 R² .. 1.000 R²)
+mean                 388.0 ns   (386.7 ns .. 390.2 ns)
+std dev              5.472 ns   (3.875 ns .. 8.127 ns)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              16576.000  (16575.998 .. 16576.001)
+  y                  3090.713   (2874.683 .. 3326.811)
+variance introduced by outliers: 14% (moderately inflated)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 negative lookups/Lookup preparation in memory
+time                 5.594 μs   (5.550 μs .. 5.645 μs)
+                     1.000 R²   (0.999 R² .. 1.000 R²)
+mean                 5.595 μs   (5.566 μs .. 5.646 μs)
+std dev              128.7 ns   (77.71 ns .. 194.2 ns)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              25240.000  (25239.974 .. 25240.028)
+  y                  3066.206   (2795.627 .. 3353.535)
+variance introduced by outliers: 26% (moderately inflated)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 negative lookups/Submit IOOps in batches
+time                 43.18 μs   (42.65 μs .. 43.59 μs)
+                     0.998 R²   (0.997 R² .. 0.999 R²)
+mean                 43.33 μs   (43.09 μs .. 43.66 μs)
+std dev              829.0 ns   (616.2 ns .. 1.046 μs)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              7936.000   (7936.000 .. 7936.000)
+  y                  -9.548e-10 (-1.372e-9 .. 1.391e-9)
+variance introduced by outliers: 14% (moderately inflated)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 negative lookups/Perform intra-page lookups
+time                 751.4 ns   (743.2 ns .. 759.4 ns)
+                     0.999 R²   (0.999 R² .. 0.999 R²)
+mean                 751.7 ns   (744.2 ns .. 761.6 ns)
+std dev              18.14 ns   (13.15 ns .. 25.78 ns)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              4472.000   (4472.000 .. 4472.000)
+  y                  -8.161e-9  (-1.259e-8 .. 1.260e-8)
+variance introduced by outliers: 29% (moderately inflated)
+
+benchmarking Bench.Database.LSMTree.Internal.Lookup/2_000_000 entries, 256 negative lookups/Batched lookups in IO
+time                 52.98 μs   (52.46 μs .. 53.45 μs)
+                     1.000 R²   (0.999 R² .. 1.000 R²)
+mean                 53.52 μs   (53.17 μs .. 53.95 μs)
+std dev              1.326 μs   (1.075 μs .. 1.630 μs)
+allocated:           1.000 R²   (1.000 R² .. 1.000 R²)
+  iters              33092.766  (33092.442 .. 33093.050)
+  y                  2863.362   (2532.886 .. 3201.329)
+variance introduced by outliers: 23% (moderately inflated)
+
