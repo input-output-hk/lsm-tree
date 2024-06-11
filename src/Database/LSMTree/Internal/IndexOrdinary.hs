@@ -23,6 +23,7 @@ import           Data.Vector (Vector, drop, findIndexR, fromList, length,
 import qualified Data.Vector.Primitive as Primitive (Vector (Vector), drop,
                      force, length, null, splitAt, take)
 import           Data.Word (Word16, Word32, Word64, Word8, byteSwap32)
+import           Database.LSMTree.Internal.Vector (mkPrimVector)
 import           Database.LSMTree.Internal.Entry (NumEntries (NumEntries))
 import           Database.LSMTree.Internal.IndexCompact (PageNo (PageNo),
                      PageSpan (PageSpan))
@@ -117,7 +118,7 @@ fromSBS shortByteString@(SBS unliftedByteArray)
     byteArray = ByteArray unliftedByteArray
 
     fullBytes :: Primitive.Vector Word8
-    fullBytes = Primitive.Vector 0 fullSize byteArray
+    fullBytes = mkPrimVector 0 fullSize byteArray
 
     version :: Word32
     version = indexByteArray byteArray 0
