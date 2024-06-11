@@ -11,66 +11,23 @@ module Database.LSMTree.Internal.IndexOrdinary
 )
 where
 
-import Prelude hiding (length, drop, takeWhile)
+import           Prelude hiding (drop, length, takeWhile)
 
-import Control.Monad
-       (
-           when
-       )
-import Data.Word
-       (
-           Word8,
-           Word16,
-           Word32,
-           Word64,
-           byteSwap32
-       )
-import Data.Primitive.ByteArray
-       (
-           ByteArray (ByteArray),
-           indexByteArray
-       )
-import Data.ByteString.Short
-       (
-           ShortByteString (SBS)
-       )
-import Data.ByteString.Short qualified as ShortByteString
-       (
-           length
-       )
-import Data.Vector
-       (
-           Vector,
-           fromList,
-           length,
-           (!),
-           drop,
-           takeWhile,
-           findIndexR
-       )
-import Data.Vector.Primitive qualified as Primitive
-       (
-           Vector (Vector),
-           force,
-           null,
-           length,
-           take,
-           drop,
-           splitAt,
-       )
-import Database.LSMTree.Internal.Serialise
-       (
-           SerialisedKey (SerialisedKey')
-       )
-import Database.LSMTree.Internal.Entry
-       (
-           NumEntries (NumEntries)
-       )
-import Database.LSMTree.Internal.IndexCompact
-       (
-           PageNo (PageNo),
-           PageSpan (PageSpan)
-       )
+import           Control.Monad (when)
+import           Data.ByteString.Short (ShortByteString (SBS))
+import qualified Data.ByteString.Short as ShortByteString (length)
+import           Data.Primitive.ByteArray (ByteArray (ByteArray),
+                     indexByteArray)
+import           Data.Vector (Vector, drop, findIndexR, fromList, length,
+                     takeWhile, (!))
+import qualified Data.Vector.Primitive as Primitive (Vector (Vector), drop,
+                     force, length, null, splitAt, take)
+import           Data.Word (Word16, Word32, Word64, Word8, byteSwap32)
+import           Database.LSMTree.Internal.Entry (NumEntries (NumEntries))
+import           Database.LSMTree.Internal.IndexCompact (PageNo (PageNo),
+                     PageSpan (PageSpan))
+import           Database.LSMTree.Internal.Serialise
+                     (SerialisedKey (SerialisedKey'))
 
 {-|
     The version of the index and its serialisation format that is supported by
