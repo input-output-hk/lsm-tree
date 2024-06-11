@@ -27,12 +27,12 @@ import Data.Word
        )
 import Data.Primitive.ByteArray
        (
-           ByteArray,
+           ByteArray (ByteArray),
            indexByteArray
        )
 import Data.ByteString.Short
        (
-           ShortByteString (ShortByteString)
+           ShortByteString (SBS)
        )
 import Data.ByteString.Short qualified as ShortByteString
        (
@@ -142,7 +142,7 @@ search key (IndexOrdinary lastKeys) = PageSpan (PageNo start) (PageNo end) where
     or trailing space.
 -}
 fromSBS :: ShortByteString -> Either String (NumEntries, IndexOrdinary)
-fromSBS shortByteString@(ShortByteString byteArray)
+fromSBS shortByteString@(SBS unliftedByteArray)
     | fullSize < 12
         = Left "Doesn't contain header and footer"
     | version == byteSwap32 supportedVersion
@@ -155,6 +155,9 @@ fromSBS shortByteString@(ShortByteString byteArray)
 
     fullSize :: Int
     fullSize = ShortByteString.length shortByteString
+
+    byteArray :: ByteArray
+    byteArray = ByteArray unliftedByteArray
 
     fullBytes :: Primitive.Vector Word8
     fullBytes = Primitive.Vector 0 fullSize byteArray
