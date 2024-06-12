@@ -42,12 +42,16 @@ supportedVersion = 1
 
     An index is represented by a vector that maps the number of each page to the
     key stored last in this page or, if the page is an overflow page, to the key
-    of the corresponding key–value pair. From this, the following constraints on
-    the vector follow:
+    of the corresponding key–value pair. The vector must have the following
+    properties:
 
-      * The vector must be non-empty.
+      * It is non-empty.
 
-      * The elements of the vector must be non-decreasing.
+      * Its elements are non-decreasing.
+
+    This restriction follows from the fact that a run must contain keys in
+    ascending order and must comprise at least one page for 'search' to be able
+    to return a valid page span.
 -}
 newtype IndexOrdinary = IndexOrdinary (Vector SerialisedKey)
 
