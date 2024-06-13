@@ -1,3 +1,5 @@
+{- HLINT ignore "Avoid restricted alias" -}
+
 -- | A general-purpose fence pointer index.
 module Database.LSMTree.Internal.IndexOrdinary
 (
