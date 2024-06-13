@@ -23,12 +23,12 @@ import           Data.Vector (Vector, drop, findIndexR, fromList, length,
 import qualified Data.Vector.Primitive as Primitive (Vector (Vector), drop,
                      force, length, null, splitAt, take)
 import           Data.Word (Word16, Word32, Word64, Word8, byteSwap32)
-import           Database.LSMTree.Internal.Vector (mkPrimVector)
 import           Database.LSMTree.Internal.Entry (NumEntries (NumEntries))
 import           Database.LSMTree.Internal.IndexCompact (PageNo (PageNo),
                      PageSpan (PageSpan))
 import           Database.LSMTree.Internal.Serialise
                      (SerialisedKey (SerialisedKey'))
+import           Database.LSMTree.Internal.Vector (mkPrimVector)
 
 {-|
     The version of the index and its serialisation format that is supported by
