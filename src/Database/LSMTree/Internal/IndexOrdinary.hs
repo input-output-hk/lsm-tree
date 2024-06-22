@@ -15,8 +15,8 @@ where
 
 import           Prelude hiding (drop, length, takeWhile)
 
-import           Control.Monad (when)
 import           Control.Exception (assert)
+import           Control.Monad (when)
 import           Data.ByteString.Short (ShortByteString (SBS))
 import qualified Data.ByteString.Short as ShortByteString (length)
 import           Data.Primitive.ByteArray (ByteArray (ByteArray),
