@@ -60,8 +60,9 @@ newtype IndexOrdinary = IndexOrdinary (Vector SerialisedKey)
 -- * Search
 
 {-|
-    Returns the span of pages that contain the key–value pair of a certain key
-    if there is such a pair, or an arbitrary, valid page span if there is not.
+    Searches for a page span that contains a key–value pair with the given key.
+    If there is indeed such a pair, the result is the corresponding page span;
+    if there is no such pair, the result is an arbitrary but valid page span.
 -}
 search :: SerialisedKey -> IndexOrdinary -> PageSpan
 search key (IndexOrdinary lastKeys) = PageSpan (PageNo start) (PageNo end) where
