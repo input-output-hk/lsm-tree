@@ -16,6 +16,7 @@ where
 import           Prelude hiding (drop, length, takeWhile)
 
 import           Control.Monad (when)
+import           Control.Exception (assert)
 import           Data.ByteString.Short (ShortByteString (SBS))
 import qualified Data.ByteString.Short as ShortByteString (length)
 import           Data.Primitive.ByteArray (ByteArray (ByteArray),
@@ -65,7 +66,9 @@ newtype IndexOrdinary = IndexOrdinary (Vector SerialisedKey)
     if there is no such pair, the result is an arbitrary but valid page span.
 -}
 search :: SerialisedKey -> IndexOrdinary -> PageSpan
-search key (IndexOrdinary lastKeys) = PageSpan (PageNo start) (PageNo end) where
+search key (IndexOrdinary lastKeys)
+    = assert (length lastKeys > 0) $ PageSpan (PageNo start) (PageNo end)
+    where
 
     start :: Int
     start | protoStart < pageCount = protoStart
