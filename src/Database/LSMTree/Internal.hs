@@ -79,6 +79,7 @@ import           Database.LSMTree.Internal.Run (Run)
 import qualified Database.LSMTree.Internal.Run as Run
 import           Database.LSMTree.Internal.Serialise (SerialisedBlob,
                      SerialisedKey, SerialisedValue)
+import           Database.LSMTree.Internal.TempRegistry
 import qualified Database.LSMTree.Internal.Vector as V
 import           Database.LSMTree.Internal.WriteBuffer (WriteBuffer)
 import qualified Database.LSMTree.Internal.WriteBuffer as WB
@@ -569,83 +570,17 @@ updates ::
   -> m ()
 updates es th = withOpenTable th $ \thEnv -> do
     let hfs = tableHasFS thEnv
-    modifyTableContent_ hfs (tableContent thEnv) $
-      updatesWithInterleavedFlushes
-          (tableConfig th)
-          hfs
-          (tableSessionRoot thEnv)
-          (tablesSessionUniqCounter thEnv)
-          es
+    modifyWithTempRegistry_
+      (takeMVar (tableContent thEnv))
+      (putMVar (tableContent thEnv)) $
+        updatesWithInterleavedFlushes
+            (tableConfig th)
+            hfs
+            (tableSessionRoot thEnv)
+            (tablesSessionUniqCounter thEnv)
+            es
 
--- | A temporary registry for resources that are bound to end up in some final
--- state, after which they /should/ be guaranteed to be released correctly.
---
--- It is the responsibility of the user to guarantee that this final state is
--- released correctly in the presence of (async) exceptions.
---
--- NOTE: we could use an even more proper abstraction for this /temporary
--- registry/ pattern, because it is a pattern that is bound to show up more
--- often. An example of such an abstraction is the @WithTempRegistry@ from
--- @ouroboros-consensus@:
--- https://github.com/IntersectMBO/ouroboros-consensus/blob/main/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/Util/ResourceRegistry.hs
-newtype TempRegistry m a = TempRegistry (StrictMVar m (V.Vector a))
-
-{-# SPECIALISE newTempRegistry :: IO (TempRegistry IO a) #-}
-newTempRegistry :: MonadMVar m => m (TempRegistry m a)
-newTempRegistry = TempRegistry <$> newMVar V.empty
-
-{-# SPECIALISE releaseTempRegistry :: TempRegistry IO a -> (a -> IO ()) -> IO () #-}
-releaseTempRegistry :: MonadMVar m => TempRegistry m a -> (a -> m ()) -> m ()
-releaseTempRegistry (TempRegistry var) free = do
-    xs <- takeMVar var
-    V.mapM_ free xs
-
-{-# SPECIALISE allocateTemp :: TempRegistry IO a -> IO a -> IO a #-}
-allocateTemp :: (MonadMask m, MonadMVar m) => TempRegistry m a -> m a -> m a
-allocateTemp (TempRegistry var) acquire =
-    mask_ $ do
-      x <- acquire
-      modifyMVar_ var (pure . V.cons x)
-      pure x
-
-{-# SPECIALISE modifyTableContent :: HasFS IO h -> StrictMVar IO (TableContent h) -> (TempRegistry IO (Run (Handle h)) -> TableContent h -> IO (TableContent h, a)) -> IO a #-}
--- | Exception-safe modification of table contents.
---
--- When we modify a table's content (variable), we might add a number of new
--- runs to the levels. If an exception is thrown before putting the updated
--- table contents into the variable, then all new runs should be cleaned up. We
--- record these runs in a 'TempRegistry'.
-modifyTableContent ::
-     m ~ IO
-  => HasFS m h
-  -> StrictMVar m (TableContent h)
-  -> (TempRegistry m (Run (Handle h)) -> TableContent h -> m (TableContent h, a))
-  -> m a
-modifyTableContent hfs varContent action =
-    snd . fst <$> generalBracket acquire release (uncurry action)
-  where
-    acquire = (,) <$> newTempRegistry <*> takeMVar varContent
-    release (reg, content) = \case
-        ExitCaseSuccess (content', _) -> putMVar varContent content'
-        ExitCaseException _ -> putBack
-        ExitCaseAbort -> putBack
-      where
-        putBack = do
-          putMVar varContent content
-          releaseTempRegistry reg (Run.removeReference hfs)
-
-{-# SPECIALISE modifyTableContent_ :: HasFS IO h -> StrictMVar IO (TableContent h) -> (TempRegistry IO (Run (Handle h)) -> TableContent h -> IO (TableContent h)) -> IO () #-}
--- | Like 'modifyTableContent', but without a return value.
-modifyTableContent_ ::
-     m ~ IO
-  => HasFS m h
-  -> StrictMVar m (TableContent h)
-  -> (TempRegistry m (Run (Handle h)) -> TableContent h -> m (TableContent h))
-  -> m ()
-modifyTableContent_ hfs varContent action =
-    modifyTableContent hfs varContent (\reg content -> (,()) <$> action reg content)
-
-{-# SPECIALISE updatesWithInterleavedFlushes :: TableConfig -> HasFS IO h -> SessionRoot -> UniqCounter IO -> V.Vector (SerialisedKey, Entry SerialisedValue SerialisedBlob) -> TempRegistry IO (Run (Handle h)) -> TableContent h -> IO (TableContent h) #-}
+{-# SPECIALISE updatesWithInterleavedFlushes :: TableConfig -> HasFS IO h -> SessionRoot -> UniqCounter IO -> V.Vector (SerialisedKey, Entry SerialisedValue SerialisedBlob) -> TempRegistry IO -> TableContent h -> IO (TableContent h) #-}
 -- | A single batch of updates can fill up the write buffer multiple times. We
 -- flush the write buffer each time it fills up before trying to fill it up
 -- again.
@@ -677,7 +612,7 @@ updatesWithInterleavedFlushes ::
   -> SessionRoot
   -> UniqCounter m
   -> V.Vector (SerialisedKey, Entry SerialisedValue SerialisedBlob)
-  -> TempRegistry m (Run (Handle h))
+  -> TempRegistry m
   -> TableContent h
   -> m (TableContent h)
 updatesWithInterleavedFlushes conf hfs root uniqC es reg tc = do
@@ -713,7 +648,7 @@ updatesWithInterleavedFlushes conf hfs root uniqC es reg tc = do
         , tableCache = tableCache tc0
         }
 
-{-# SPECIALISE flushWriteBuffer :: HasFS IO h -> SessionRoot -> UniqCounter IO -> TempRegistry IO (Run (Handle h)) -> TableContent h -> IO (TableContent h) #-}
+{-# SPECIALISE flushWriteBuffer :: HasFS IO h -> SessionRoot -> UniqCounter IO -> TempRegistry IO -> TableContent h -> IO (TableContent h) #-}
 -- | Flush the write buffer to disk, regardless of whether it is full or not.
 --
 -- The returned table content contains an updated set of levels, where the write
@@ -727,14 +662,16 @@ flushWriteBuffer ::
   => HasFS m h
   -> SessionRoot
   -> UniqCounter m
-  -> TempRegistry m (Run (Handle h))
+  -> TempRegistry m
   -> TableContent h
   -> m (TableContent h)
 flushWriteBuffer hfs root uniqC reg tc = do
     n <- incrUniqCounter uniqC
-    r <- allocateTemp reg (Run.fromWriteBuffer hfs
-                            (Paths.runPath root n)
-                            (tableWriteBuffer tc))
+    r <- allocateTemp reg
+            (Run.fromWriteBuffer hfs
+              (Paths.runPath root n)
+              (tableWriteBuffer tc))
+            (Run.removeReference hfs)
     let levels' = addRunToLevels r (tableLevels tc)
     pure $! TableContent {
         tableWriteBuffer = WB.empty
@@ -766,7 +703,9 @@ snapshot snap label th = do
       -- For the temporary implementation it is okay to just flush the buffer
       -- before taking the snapshot.
       let hfs = tableHasFS thEnv
-      content <- modifyTableContent hfs (tableContent thEnv) $ \reg content -> do
+      content <- modifyWithTempRegistry
+                    (takeMVar (tableContent thEnv))
+                    (putMVar (tableContent thEnv)) $ \reg content -> do
         r <- flushWriteBuffer
               hfs
               (tableSessionRoot thEnv)

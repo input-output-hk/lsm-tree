@@ -75,6 +75,7 @@ library
     Database.LSMTree.Internal.RunReaders
     Database.LSMTree.Internal.Serialise
     Database.LSMTree.Internal.Serialise.Class
+    Database.LSMTree.Internal.TempRegistry
     Database.LSMTree.Internal.Unsliced
     Database.LSMTree.Internal.Vector
     Database.LSMTree.Internal.WriteBuffer
