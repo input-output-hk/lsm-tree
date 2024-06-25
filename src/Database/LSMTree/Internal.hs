@@ -424,6 +424,23 @@ newtype Level h = Level {
   }
   deriving newtype NoThunks
 
+{-# SPECIALISE closeLevels :: HasFS IO h -> Levels (Handle h) -> IO () #-}
+closeLevels ::
+     m ~ IO
+  => HasFS m h
+  -> Levels (Handle h)
+  -> m ()
+closeLevels hfs levels = V.mapM_ (closeLevel hfs) levels
+
+-- | Runs in order from newer to older
+{-# SPECIALISE closeLevel :: HasFS IO h -> Level (Handle h) -> IO () #-}
+closeLevel ::
+     m ~ IO -- TODO: replace by @io-classes@ constraints for IO simulation.
+  => HasFS m h
+  -> Level (Handle h)
+  -> m ()
+closeLevel hfs (Level rs) = V.mapM_ (Run.removeReference hfs) rs
+
 -- | Flattend cache of the runs that referenced by a table handle.
 --
 -- This cache includes a vector of runs, but also vectors of the runs broken
@@ -518,8 +535,7 @@ close th = RW.modify_ (tableHandleState th) $ \case
       -- forget about this table.
       tableSessionUntrackTable thEnv
       lvls <- tableLevels <$> readMVar (tableContent thEnv)
-      V.forM_ lvls $ \Level{residentRuns} ->
-        V.forM_ residentRuns $ Run.removeReference (tableHasFS thEnv)
+      closeLevels (tableHasFS thEnv) lvls
       pure TableHandleClosed
 
 {-# SPECIALISE lookups :: V.Vector SerialisedKey -> TableHandle IO h -> (Maybe (Entry SerialisedValue (BlobRef (Run (Handle h)))) -> lookupResult) -> IO (V.Vector lookupResult) #-}
