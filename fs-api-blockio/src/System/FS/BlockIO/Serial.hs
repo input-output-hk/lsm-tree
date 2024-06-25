@@ -20,15 +20,19 @@ import           System.FS.BlockIO.API (IOOp (..), IOResult (..))
 -- implementation does not take advantage of parallel I/O.
 serialHasBlockIO ::
      (MonadThrow m, MonadMVar m, PrimMonad m, Eq h)
-  => HasFS m h
+  => (Handle h -> m Bool)
+  -> (Handle h -> Bool -> m ())
+  -> HasFS m h
   -> API.IOCtxParams
   -> m (API.HasBlockIO m h)
-serialHasBlockIO hfs ctxParams = do
+serialHasBlockIO readNoCache writeNoCache hfs ctxParams = do
   ctx <- initIOCtx (SomeHasFS hfs)
   pure $ API.HasBlockIO {
       API.close = close ctx
     , API.submitIO = submitIO hfs ctx
     , API.getParams = ctxParams
+    , API.readNoCache
+    , API.writeNoCache
     }
 
 data IOCtx m = IOCtx { ctxFS :: SomeHasFS m, openVar :: MVar m Bool }

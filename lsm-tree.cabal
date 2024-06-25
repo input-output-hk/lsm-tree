@@ -569,12 +569,13 @@ library fs-api-blockio
     System.FS.BlockIO.Serial
 
   build-depends:
-    , base        >=4.16  && <4.20
-    , deepseq     ^>=1.4  || ^>=1.5
-    , fs-api      ^>=0.2
-    , io-classes  ^>=1.4
-    , primitive   ^>=0.9
-    , vector      ^>=0.13
+    , base                    >=4.16  && <4.20
+    , deepseq                 ^>=1.4  || ^>=1.5
+    , fs-api                  ^>=0.2
+    , io-classes              ^>=1.4
+    , lsm-tree:fcntl-nocache
+    , primitive               ^>=0.9
+    , vector                  ^>=0.13
 
   if os(linux)
     hs-source-dirs: fs-api-blockio/src-linux

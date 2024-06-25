@@ -26,6 +26,8 @@ import qualified Database.LSMTree.Internal.WriteBuffer as WB
 import           Prelude hiding (getContents)
 import           System.Directory (removeDirectoryRecursive)
 import qualified System.FS.API as FS
+import qualified System.FS.BlockIO.API as FS
+import qualified System.FS.BlockIO.IO as FS
 import qualified System.FS.IO as FS
 import           System.IO.Temp
 import qualified System.Random as R
@@ -185,7 +187,7 @@ benchmarks = bgroup "Bench.Database.LSMTree.Internal.Merge" [
 
 benchMerge :: Config -> Benchmark
 benchMerge conf@Config{name} =
-    withEnv $ \ ~(_dir, hasFS, runs) ->
+    withEnv $ \ ~(_dir, hasFS, hbio, runs) ->
       bgroup name [
           bench "merge" $
             -- We'd like to do: `whnfAppIO (runs' -> ...) runs`.
@@ -199,7 +201,7 @@ benchMerge conf@Config{name} =
             Cr.perRunEnvWithCleanup
               (pure (runs, outputRunPaths))
               (const (removeOutputRunFiles hasFS)) $ \(runs', p) -> do
-                !run <- merge hasFS conf p runs'
+                !run <- merge hasFS hbio conf p runs'
                 -- Make sure to immediately close resulting runs so we don't run
                 -- out of file handles. Ideally this would not be measured, but at
                 -- least it's pretty cheap.
@@ -221,18 +223,19 @@ benchMerge conf@Config{name} =
 
 merge ::
      FS.HasFS IO FS.HandleIO
+  -> FS.HasBlockIO IO FS.HandleIO
   -> Config
   -> Run.RunFsPaths
   -> InputRuns
   -> IO (Run (FS.Handle (FS.HandleIO)))
-merge fs Config {..} targetPaths runs = do
+merge fs hbio Config {..} targetPaths runs = do
     let f = fromMaybe const mergeMappend
     m <- fromMaybe (error "empty inputs, no merge created") <$>
       Merge.new fs mergeLevel f targetPaths runs
     go m
   where
     go m =
-        Merge.steps fs m stepSize >>= \case
+        Merge.steps fs hbio m stepSize >>= \case
           (_, Merge.MergeComplete run) -> return run
           (_, Merge.MergeInProgress) -> go m
 
@@ -316,22 +319,26 @@ mergeEnv ::
      Config
   -> IO ( FilePath -- ^ Temporary directory
         , FS.HasFS IO FS.HandleIO
+        , FS.HasBlockIO IO FS.HandleIO
         , InputRuns
         )
 mergeEnv config = do
     sysTmpDir <- getCanonicalTemporaryDirectory
     benchTmpDir <- createTempDirectory sysTmpDir "mergeEnv"
     let hasFS = FS.ioHasFS (FS.MountPoint benchTmpDir)
-    runs <- randomRuns hasFS config (mkStdGen 17)
-    pure (benchTmpDir, hasFS, runs)
+    hasBlockIO <- FS.ioHasBlockIO hasFS FS.defaultIOCtxParams
+    runs <- randomRuns hasFS hasBlockIO config (mkStdGen 17)
+    pure (benchTmpDir, hasFS, hasBlockIO, runs)
 
 mergeEnvCleanup ::
      ( FilePath -- ^ Temporary directory
      , FS.HasFS IO FS.HandleIO
+     , FS.HasBlockIO IO FS.HandleIO
      , InputRuns
      )
   -> IO ()
-mergeEnvCleanup (tmpDir, hasFS, runs) = do
+mergeEnvCleanup (tmpDir, hasFS, hasBlockIO, runs) = do
+    FS.close hasBlockIO
     traverse_ (Run.removeReference hasFS) runs
     removeDirectoryRecursive tmpDir
 
@@ -339,22 +346,24 @@ mergeEnvCleanup (tmpDir, hasFS, runs) = do
 -- They are already serialised to exclude the cost from the benchmark.
 randomRuns ::
      FS.HasFS IO FS.HandleIO
+  -> FS.HasBlockIO IO FS.HandleIO
   -> Config
   -> StdGen
   -> IO InputRuns
-randomRuns hasFS config@Config {..} =
-      zipWithM (createRun hasFS mergeMappend) inputRunPaths
+randomRuns hasFS hasBlockIO config@Config {..} =
+      zipWithM (createRun hasFS hasBlockIO mergeMappend) inputRunPaths
     . zipWith (randomKOps config) nentries
     . List.unfoldr (Just . R.split)
 
 createRun ::
      FS.HasFS IO h
+  -> FS.HasBlockIO IO h
   -> Maybe Mappend
   -> Run.RunFsPaths
   -> [SerialisedKOp]
   -> IO (Run (FS.Handle h))
-createRun hasFS mMappend targetPath =
-      Run.fromWriteBuffer hasFS targetPath
+createRun hasFS hasBlockIO mMappend targetPath =
+      Run.fromWriteBuffer hasFS hasBlockIO targetPath
     . List.foldl insert WB.empty
   where
     insert wb (k, e) = case mMappend of

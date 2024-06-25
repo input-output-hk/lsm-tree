@@ -1,0 +1,188 @@
+Resolving dependencies...
+Build profile: -w ghc-9.6.5 -O1
+In order, the following will be built (use -v for more details):
+ - lsm-tree-0.1.0.0 (lib:fs-api-blockio) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib:kmerge) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib:xxhash) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib:bloomfilter) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib) (configuration changed)
+ - lsm-tree-0.1.0.0 (bench:lsm-tree-macro-bench) (configuration changed)
+Configuring library 'fs-api-blockio' for lsm-tree-0.1.0.0..
+Configuring library 'xxhash' for lsm-tree-0.1.0.0..
+Configuring library 'kmerge' for lsm-tree-0.1.0.0..
+Preprocessing library 'fs-api-blockio' for lsm-tree-0.1.0.0..
+Building library 'fs-api-blockio' for lsm-tree-0.1.0.0..
+Preprocessing library 'kmerge' for lsm-tree-0.1.0.0..
+Building library 'kmerge' for lsm-tree-0.1.0.0..
+Preprocessing library 'xxhash' for lsm-tree-0.1.0.0..
+Building library 'xxhash' for lsm-tree-0.1.0.0..
+[1 of 5] Compiling System.FS.BlockIO.API ( fs-api-blockio/src/System/FS/BlockIO/API.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/API.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/API.dyn_o ) [Source file changed]
+Configuring library 'bloomfilter' for lsm-tree-0.1.0.0..
+[2 of 5] Compiling System.FS.BlockIO.Async ( fs-api-blockio/src-linux/System/FS/BlockIO/Async.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/Async.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/Async.dyn_o ) [Source file changed]
+[3 of 5] Compiling System.FS.BlockIO.Internal ( fs-api-blockio/src-linux/System/FS/BlockIO/Internal.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/Internal.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/Internal.dyn_o ) [Source file changed]
+[4 of 5] Compiling System.FS.BlockIO.IO ( fs-api-blockio/src/System/FS/BlockIO/IO.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/IO.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/IO.dyn_o ) [System.FS.BlockIO.API changed]
+[5 of 5] Compiling System.FS.BlockIO.Serial ( fs-api-blockio/src/System/FS/BlockIO/Serial.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/Serial.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/l/fs-api-blockio/build/fs-api-blockio/System/FS/BlockIO/Serial.dyn_o ) [Source file changed]
+Preprocessing library 'bloomfilter' for lsm-tree-0.1.0.0..
+Building library 'bloomfilter' for lsm-tree-0.1.0.0..
+Configuring library for lsm-tree-0.1.0.0..
+Preprocessing library for lsm-tree-0.1.0.0..
+Building library for lsm-tree-0.1.0.0..
+[29 of 37] Compiling Database.LSMTree.Internal.Run ( src/Database/LSMTree/Internal/Run.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/Run.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/Run.dyn_o ) [Source file changed]
+[30 of 37] Compiling Database.LSMTree.Internal.RunReader ( src/Database/LSMTree/Internal/RunReader.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/RunReader.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/RunReader.dyn_o ) [Database.LSMTree.Internal.Run changed]
+[31 of 37] Compiling Database.LSMTree.Internal.RunReaders ( src/Database/LSMTree/Internal/RunReaders.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/RunReaders.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/RunReaders.dyn_o ) [Database.LSMTree.Internal.Run changed]
+[32 of 37] Compiling Database.LSMTree.Internal.Merge ( src/Database/LSMTree/Internal/Merge.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/Merge.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/Merge.dyn_o ) [Source file changed]
+[33 of 37] Compiling Database.LSMTree.Internal.Lookup ( src/Database/LSMTree/Internal/Lookup.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/Lookup.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal/Lookup.dyn_o ) [Source file changed]
+[34 of 37] Compiling Database.LSMTree.Internal ( src/Database/LSMTree/Internal.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Internal.dyn_o ) [Database.LSMTree.Internal.Lookup changed]
+[35 of 37] Compiling Database.LSMTree.Common ( src/Database/LSMTree/Common.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Common.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Common.dyn_o ) [Database.LSMTree.Internal changed]
+[36 of 37] Compiling Database.LSMTree.Monoidal ( src/Database/LSMTree/Monoidal.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Monoidal.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Monoidal.dyn_o ) [Database.LSMTree.Common changed]
+[37 of 37] Compiling Database.LSMTree.Normal ( src/Database/LSMTree/Normal.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Normal.o, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/build/Database/LSMTree/Normal.dyn_o ) [Database.LSMTree.Common changed]
+Configuring benchmark 'lsm-tree-macro-bench' for lsm-tree-0.1.0.0..
+Preprocessing benchmark 'lsm-tree-macro-bench' for lsm-tree-0.1.0.0..
+Building benchmark 'lsm-tree-macro-bench' for lsm-tree-0.1.0.0..
+[4 of 5] Compiling Bench.Database.LSMTree.Internal.Lookup ( bench/macro/Bench/Database/LSMTree/Internal/Lookup.hs, /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/b/lsm-tree-macro-bench/build/lsm-tree-macro-bench/lsm-tree-macro-bench-tmp/Bench/Database/LSMTree/Internal/Lookup.o ) [Source file changed]
+[6 of 6] Linking /home/joris/repos/lsm/lsm-tree/dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/b/lsm-tree-macro-bench/build/lsm-tree-macro-bench/lsm-tree-macro-bench [Objects changed]
+Precomputed run stats:
+(numEntries, sizeFactor)
+(16384,1)
+(16384,1)
+(16384,1)
+(16384,1)
+(16384,1)
+(16384,1)
+(16384,1)
+(16384,1)
+(65536,4)
+(65536,4)
+(65536,4)
+(65536,4)
+(65536,4)
+(65536,4)
+(65536,4)
+(65536,4)
+(262144,16)
+(262144,16)
+(262144,16)
+(262144,16)
+(262144,16)
+(262144,16)
+(262144,16)
+(262144,16)
+(1048576,64)
+(1048576,64)
+(1048576,64)
+(1048576,64)
+(1048576,64)
+(1048576,64)
+(1048576,64)
+(1048576,64)
+(4194304,256)
+(4194304,256)
+(4194304,256)
+(4194304,256)
+(4194304,256)
+(4194304,256)
+(4194304,256)
+(4194304,256)
+(67108864,4096)
+total number of entries:	 111804416
+total number of key lookups:	 1000000
+<Generating runs>vectorOfUniforms..........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................DONEshuffle..........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................DONEaddKeyOp................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................DONE<finished>
+Actual stats for generated runs:
+(numEntries, numPages, hashesN, bits per entry)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 16384},400,6,9.18939208984375)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 65536},1599,6,9.189346313476563)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 262144},6394,6,9.189579010009766)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 1048576},25576,6,9.189587593078613)
+(NumEntries {unNumEntries = 4194304},102303,6,9.18958592414856)
+(NumEntries {unNumEntries = 4194304},102302,6,9.18958592414856)
+(NumEntries {unNumEntries = 4194304},102302,6,9.18958592414856)
+(NumEntries {unNumEntries = 4194304},102301,6,9.18958592414856)
+(NumEntries {unNumEntries = 4194304},102303,6,9.18958592414856)
+(NumEntries {unNumEntries = 4194304},102302,6,9.18958592414856)
+(NumEntries {unNumEntries = 4194304},102301,6,9.18958592414856)
+(NumEntries {unNumEntries = 4194304},102302,6,9.18958592414856)
+(NumEntries {unNumEntries = 67108864},1637295,6,9.189586654305458)
+Pausing. Drop caches now! When ready, press enter.
+Benchmarking benchGenKeyBatches ... 
+Calculate batches of keys. This serves as a baseline for later benchmark runs to compare against.
+Finished.
+Time total:        1.92e-2 seconds
+Alloc total:       9.62e7 bytes
+Time net:          1.92e-2 seconds
+Alloc net:         9.62e7 bytes
+Time net per key:  1.92e-8 seconds
+Alloc net per key: 96.21 bytes
+
+Benchmarking benchBloomQueries ... 
+Calculate batches of keys, and perform bloom queries for each batch. Net time/allocation is the result of subtracting the cost of benchGenKeyBatches.
+Finished.
+Time total:        2.91 seconds
+Alloc total:       1.36e8 bytes
+Time net:          2.89 seconds
+Alloc net:         4.00e7 bytes
+Time net per key:  2.89e-6 seconds
+Alloc net per key: 40.01 bytes
+
+Benchmarking benchIndexSearches ... 
+Calculate batches of keys, perform bloom queries for each batch, and perform index searches for positively queried keys in each batch. Net time/allocation is the result of subtracting the cost of benchGenKeyBatches and benchBloomQueries.
+Finished.
+Time total:        3.88 seconds
+Alloc total:       1.24e10 bytes
+Time net:          0.97 seconds
+Alloc net:         1.23e10 bytes
+Time net per key:  9.69e-7 seconds
+Alloc net per key: 12270.44 bytes
+
+Benchmarking benchPrepLookups ... 
+Calculate batches of keys, and prepare lookups for each batch. This is roughly doing the same amount of work as benchIndexSearches. Net time/allocation is the result of subtracting the cost of benchGenKeyBatches.
+Finished.
+Time total:        3.88 seconds
+Alloc total:       1.24e10 bytes
+Time net:          3.86 seconds
+Alloc net:         1.23e10 bytes
+Time net per key:  3.86e-6 seconds
+Alloc net per key: 12310.45 bytes
+
+Benchmarking benchLookupsInBatches ... 
+Calculate batches of keys, and perform disk lookups for each batch. This is roughly doing the same as benchPrepLookups, but also performing the disk I/O and resolving values. Net time/allocation is the result of subtracting the cost of benchGenKeyBatches.
+Finished.
+Time total:        10.73 seconds
+Alloc total:       1.34e10 bytes
+Time net:          10.71 seconds
+Alloc net:         1.33e10 bytes
+Time net per key:  1.07e-5 seconds
+Alloc net per key: 13312.71 bytes
+
+Cleaning up
+<Computing statistics for prepLookups>classifyLookups...................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................DONE<finished>
+Statistics for prepLookups:
+(positives, fpr, tp, fn, fp, tn)
+(1486214,1.2009371881500206e-2,1000000,0,486214,40000000)
