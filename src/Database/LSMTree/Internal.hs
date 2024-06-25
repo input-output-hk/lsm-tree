@@ -474,7 +474,7 @@ new ::
   -> m (TableHandle m h)
 new sesh conf = withOpenSession sesh $ \seshEnv -> newWithLevels seshEnv conf V.empty
 
-{-# SPECIALISE new :: Session IO h -> TableConfig -> IO (TableHandle IO h) #-}
+{-# SPECIALISE newWithLevels :: SessionEnv IO h -> TableConfig -> Levels (Handle h) -> IO (TableHandle IO h) #-}
 newWithLevels ::
      m ~ IO -- TODO: replace by @io-classes@ constraints for IO simulation.
   => SessionEnv m h
@@ -606,7 +606,7 @@ updates es th = withOpenTable th $ \thEnv -> do
 -- and write those to disk. Of course, any remainder that did not fit into a
 -- whole run should then end up in a fresh write buffer.
 updatesWithInterleavedFlushes ::
-     m ~ IO
+     m ~ IO -- TODO: replace by @io-classes@ constraints for IO simulation.
   => TableConfig
   -> HasFS m h
   -> SessionRoot
@@ -626,7 +626,7 @@ updatesWithInterleavedFlushes conf hfs root uniqC es reg tc = do
     if unNumEntries (WB.numEntries wb') < maxn then do
       assert (V.null es') $ pure ()
       pure $! tc'
-    -- If the write buffer did reach capacity, the we flush.
+    -- If the write buffer did reach capacity, then we flush.
     else do
       assert (unNumEntries (WB.numEntries wb') == maxn) $ pure ()
       tc'' <- flushWriteBuffer hfs root uniqC reg tc'
@@ -658,14 +658,16 @@ updatesWithInterleavedFlushes conf hfs root uniqC es reg tc = do
 -- implementation that is sufficient to pass the tests, but simply writes small
 -- runs to disk without merging.
 flushWriteBuffer ::
-     m ~ IO
+     m ~ IO -- TODO: replace by @io-classes@ constraints for IO simulation.
   => HasFS m h
   -> SessionRoot
   -> UniqCounter m
   -> TempRegistry m
   -> TableContent h
   -> m (TableContent h)
-flushWriteBuffer hfs root uniqC reg tc = do
+flushWriteBuffer hfs root uniqC reg tc
+  | WB.null (tableWriteBuffer tc) = pure tc
+  | otherwise = do
     n <- incrUniqCounter uniqC
     r <- allocateTemp reg
             (Run.fromWriteBuffer hfs

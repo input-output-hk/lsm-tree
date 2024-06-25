@@ -34,6 +34,7 @@ module Database.LSMTree.Internal.WriteBuffer (
     addEntry,
     addEntryMonoidal,
     addEntryNormal,
+    null,
     lookups,
     lookup,
     lookups',
@@ -52,7 +53,7 @@ import qualified Database.LSMTree.Internal.Normal as Normal
 import           Database.LSMTree.Internal.Range (Range (..))
 import           Database.LSMTree.Internal.Serialise
 import qualified Database.LSMTree.Internal.Vector as V
-import           Prelude hiding (lookup)
+import           Prelude hiding (lookup, null)
 
 {-------------------------------------------------------------------------------
   Writebuffer type
@@ -147,6 +148,9 @@ addEntryNormal k = addEntry const k . updateToEntryNormal
 {-------------------------------------------------------------------------------
   Querying
 -------------------------------------------------------------------------------}
+
+null :: WriteBuffer -> Bool
+null (WB m) = Map.null m
 
 -- We return an 'Entry' with serialised values, so it can be properly combined
 -- with the lookups in other runs. Deserialisation only occurs afterwards.

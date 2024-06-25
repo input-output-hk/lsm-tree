@@ -99,26 +99,26 @@ prop_interimRestoreSessionUniqueRunNames ::
 prop_interimRestoreSessionUniqueRunNames (Positive (Small n)) (NonNegative m) = ioProperty $
     withTempIOHasBlockIO "TODO" $ \hfs hbio -> do
       prop1 <- withSession hfs hbio (FS.mkFsPath []) $ \sesh -> do
-        th <- new sesh conf
-        updates upds th
-        withOpenTable th $ \thEnv -> do
-          tc <- readMVar (tableContent thEnv)
-          let (Sum nruns) = V.foldMap
-                              (V.foldMap (const (Sum (1 :: Int))) . residentRuns)
-                              (tableLevels tc)
-          pure $ tabulate "number of runs on disk" [showPowersOf 2 nruns]
-               $ True
+        withTable sesh conf $ \th -> do
+          updates upds th
+          withOpenTable th $ \thEnv -> do
+            tc <- readMVar (tableContent thEnv)
+            let (Sum nruns) = V.foldMap
+                                (V.foldMap (const (Sum (1 :: Int))) . residentRuns)
+                                (tableLevels tc)
+            pure $ tabulate "number of runs on disk" [showPowersOf 2 nruns]
+                $ True
 
       withSession hfs hbio (FS.mkFsPath []) $ \sesh -> do
-        th <- new sesh conf
-        eith <- try (updates upds th)
-        fmap (prop1 .&&.) $ case eith of
-          Left (e :: FS.FsError)
-            | FS.fsErrorType e == FS.FsResourceAlreadyExist
-            -> pure $ counterexample "Test failed... found an FsResourceAlreadyExist error" False
-            | otherwise
-            -> throwIO e
-          Right () -> pure $ property True
+        withTable sesh conf $ \th -> do
+          eith <- try (updates upds th)
+          fmap (prop1 .&&.) $ case eith of
+            Left (e :: FS.FsError)
+              | FS.fsErrorType e == FS.FsResourceAlreadyExist
+              -> pure $ counterexample "Test failed... found an FsResourceAlreadyExist error" False
+              | otherwise
+              -> throwIO e
+            Right () -> pure $ property True
   where
     conf = TableConfig {
         confMergePolicy = MergePolicyLazyLevelling
@@ -148,24 +148,22 @@ prop_interimOpenTable ::
 prop_interimOpenTable dat = ioProperty $
     withTempIOHasBlockIO "prop_interimOpenTable" $ \hfs hbio -> do
       withSession hfs hbio (FS.mkFsPath []) $ \sesh -> do
-        th <- new sesh conf
-        -- Insert each key into the table one by one, so each can trigger a
-        -- flush on its own.
-        mapM_ (\(k,e) -> updates (V.singleton (k, e)) th) upds
-        let snap = fromMaybe (error "invalid name") $ mkSnapshotName "snap"
-        numRunsSnapped <- snapshot snap "someLabel" th
-        th' <- open sesh "someLabel" snap
-        lhs <- lookups ks th id
-        rhs <- lookups ks th' id
-        close th
-        close th'
-        -- TODO: checking lookups is a simple check, but we could have stronger
-        -- guarantee. For example, we might check that the internal structures
-        -- match.
-        --
-        -- TODO: remove opaqueifyBlobs once blobs are implemented.
-        pure $ tabulate "Number of runs snapshotted" [show numRunsSnapped]
-             $ (Test.opaqueifyBlobs lhs === Test.opaqueifyBlobs rhs)
+        withTable sesh conf $ \th -> do
+          updates upds th
+          let snap = fromMaybe (error "invalid name") $ mkSnapshotName "snap"
+          numRunsSnapped <- snapshot snap "someLabel" th
+          th' <- open sesh "someLabel" snap
+          lhs <- lookups ks th id
+          rhs <- lookups ks th' id
+          close th
+          close th'
+          -- TODO: checking lookups is a simple check, but we could have stronger
+          -- guarantee. For example, we might check that the internal structures
+          -- match.
+          --
+          -- TODO: remove opaqueifyBlobs once blobs are implemented.
+          pure $ tabulate "Number of runs snapshotted" [show numRunsSnapped]
+              $ (Test.opaqueifyBlobs lhs === Test.opaqueifyBlobs rhs)
   where
     conf = TableConfig {
         confMergePolicy = MergePolicyLazyLevelling
@@ -178,8 +176,10 @@ prop_interimOpenTable dat = ioProperty $
       }
 
     Test.InMemLookupData { runData, lookups = keysToLookup } = dat
-    -- TODO: remove filtering once blobs are implemented
-    runDataFiltered = Map.filter (not . hasBlob) runData
+    -- TODO: include inserts with blobs once blob retrieval is implemented
+    runDataWithoutblobs = Map.map f runData
+      where f (InsertWithBlob v _) = Insert v
+            f x                    = x
     ks = V.map serialiseKey (V.fromList keysToLookup)
     upds = V.fromList $ fmap (bimap serialiseKey (bimap serialiseValue serialiseBlob))
-                      $ Map.toList runDataFiltered
+                      $ Map.toList runDataWithoutblobs
