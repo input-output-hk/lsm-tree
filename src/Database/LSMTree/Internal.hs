@@ -1,5 +1,7 @@
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 
@@ -54,6 +56,7 @@ import           Control.Concurrent.ReadWriteVar (RWVar)
 import qualified Control.Concurrent.ReadWriteVar as RW
 import           Control.Monad (unless, void, when)
 import           Control.Monad.Class.MonadThrow
+import           Data.Bifunctor (Bifunctor (..))
 import           Data.BloomFilter (Bloom)
 import qualified Data.ByteString.Char8 as BSC
 import           Data.Either (fromRight)
@@ -416,13 +419,19 @@ withOpenTable th action = RW.with (tableHandleState th) $ \case
 type Levels h = V.Vector (Level h)
 
 -- | Runs in order from newer to older
-newtype Level h = Level {
-    residentRuns :: V.Vector (Run h)
-{- TODO: this is where ongoing merges appear once we implement scheduling ,
-  incomingRuns :: MergingRun
--}
+data Level h = Level {
+    incomingRuns :: !(MergingRun h)
+  , residentRuns :: !(V.Vector (Run h))
   }
-  deriving newtype NoThunks
+
+-- TODO: proper instance
+deriving via OnlyCheckWhnfNamed "Level" (Level h) instance NoThunks (Level h)
+
+-- | Merges are stepped to completion immediately, so there is no representation
+-- for ongoing merges (yet)
+--
+-- TODO: this should also represent ongoing merges once we implement scheduling.
+newtype MergingRun h = SingleRun (Run h)
 
 {-# SPECIALISE closeLevels :: HasFS IO h -> Levels (Handle h) -> IO () #-}
 closeLevels ::
@@ -432,14 +441,15 @@ closeLevels ::
   -> m ()
 closeLevels hfs levels = V.mapM_ (closeLevel hfs) levels
 
--- | Runs in order from newer to older
 {-# SPECIALISE closeLevel :: HasFS IO h -> Level (Handle h) -> IO () #-}
 closeLevel ::
      m ~ IO -- TODO: replace by @io-classes@ constraints for IO simulation.
   => HasFS m h
   -> Level (Handle h)
   -> m ()
-closeLevel hfs (Level rs) = V.mapM_ (Run.removeReference hfs) rs
+closeLevel hfs (Level mr rs) = do
+  case mr of SingleRun r -> Run.removeReference hfs r
+  V.mapM_ (Run.removeReference hfs) rs
 
 -- | Flattend cache of the runs that referenced by a table handle.
 --
@@ -466,7 +476,7 @@ mkLevelsCache lvls = LevelsCache_ {
     , cachedIndexes   = V.map Run.runIndex rs
     , cachedKOpsFiles = V.map Run.runKOpsFile rs
     }
-  where rs = V.concatMap residentRuns lvls
+  where rs = V.concatMap (\(Level (SingleRun r) rs') -> V.cons r rs') lvls
 
 --
 -- Implementation of public API
@@ -699,8 +709,8 @@ flushWriteBuffer hfs root uniqC reg tc
   where
     addRunToLevels :: Run h -> Levels h -> Levels h
     addRunToLevels r levels = case V.uncons levels of
-        Nothing               -> V.singleton $ Level $ V.singleton r
-        Just (Level runs, ls) -> V.cons (Level (V.cons r runs)) ls
+        Nothing -> V.singleton $ Level (SingleRun r) V.empty
+        Just (Level (SingleRun r') runs, ls) -> V.cons (Level (SingleRun r) (V.cons r' runs)) ls
 
 {-------------------------------------------------------------------------------
   Snapshots
@@ -735,7 +745,9 @@ snapshot snap label th = do
       -- snapshot file yet. If an asynchronous exception happens beyond this
       -- point, we'll take that loss, as the inner state of the table is still
       -- consistent.
-      let runNumbers = V.map (V.map (runNumber . Run.runRunFsPaths) . residentRuns) $
+      let runNumbers = V.map (\(Level (SingleRun mr) rs) ->
+                                ( runNumber (Run.runRunFsPaths mr)
+                                , V.map (runNumber . Run.runRunFsPaths) rs)) $
                           tableLevels content
           snapPath = Paths.snapshot (tableSessionRoot thEnv) snap
       FS.doesFileExist (tableHasFS thEnv) snapPath >>= \b ->
@@ -746,7 +758,7 @@ snapshot snap label th = do
         (FS.WriteMode FS.MustBeNew) $ \h ->
           void $ FS.hPutAllStrict (tableHasFS thEnv) h
                       (BSC.pack $ show (label, runNumbers, tableConfig th))
-      pure $! V.sum (V.map V.length runNumbers)
+      pure $! V.sum (V.map (\((_ :: Word64), rs) -> 1 + V.length rs) runNumbers)
 
 {-# SPECIALISE open :: Session IO h -> String -> SnapshotName -> IO (TableHandle IO h) #-}
 -- |  See 'Database.LSMTree.Normal.open'.
@@ -769,10 +781,12 @@ open sesh label snap = do
                 FS.hGetAll (sessionHasFS seshEnv) h
       let (label', runNumbers, conf) = read . BSC.unpack . BSC.toStrict $ bs
       unless (label == label') $ throwIO (ErrSnapshotWrongType snap)
-      let runPaths = V.map (V.map (RunFsPaths (Paths.activeDir $ sessionRoot seshEnv))) runNumbers
+      let runPaths = V.map (bimap (RunFsPaths (Paths.activeDir $ sessionRoot seshEnv))
+                                  (V.map (RunFsPaths (Paths.activeDir $ sessionRoot seshEnv))))
+                           runNumbers
       with (openLevels hfs runPaths) (newWithLevels seshEnv conf)
 
-{-# SPECIALISE openLevels :: HasFS IO h -> V.Vector (V.Vector RunFsPaths) -> Managed IO (Levels (FS.Handle h)) #-}
+{-# SPECIALISE openLevels :: HasFS IO h -> V.Vector (RunFsPaths, V.Vector RunFsPaths) -> Managed IO (Levels (FS.Handle h)) #-}
 -- | Open multiple levels.
 --
 -- If an error occurs when opening multiple runs in sequence, then we have to
@@ -788,14 +802,16 @@ open sesh label snap = do
 openLevels ::
      m ~ IO -- TODO: replace by @io-classes@ constraints for IO simulation.
   => HasFS m h
-  -> V.Vector (V.Vector RunFsPaths)
+  -> V.Vector (RunFsPaths, V.Vector RunFsPaths)
   -> Managed m (Levels (Handle h))
 openLevels hfs levels =
-    flip V.mapMStrict levels $ \level -> fmap Level $
-      flip V.mapMStrict level $ \run ->
+    flip V.mapMStrict levels $ \(mrPath, rsPaths) -> do
+      mr <- Managed $ bracketOnError (Run.openFromDisk hfs mrPath) (Run.removeReference hfs)
+      rs <- flip V.mapMStrict rsPaths $ \run ->
         Managed $ bracketOnError
                     (Run.openFromDisk hfs run)
                     (Run.removeReference hfs)
+      pure $! Level (SingleRun mr) rs
 
 {-# SPECIALISE deleteSnapshot :: Session IO h -> SnapshotName -> IO () #-}
 -- |  See 'Database.LSMTree.Common.deleteSnapshot'.
