@@ -183,3 +183,19 @@ prop_interimOpenTable dat = ioProperty $
     ks = V.map serialiseKey (V.fromList keysToLookup)
     upds = V.fromList $ fmap (bimap serialiseKey (bimap serialiseValue serialiseBlob))
                       $ Map.toList runDataWithoutblobs
+
+{- TODO: add test checking table layout invariants after each update.
+   (check size and number of runs at each level)
+levelsInvariant :: TableConfig -> Levels h -> Bool
+levelsInvariant config = go 1 (fromIntegral (confWriteBufferAlloc config))
+  where
+    go n maxSizeTiering (V.uncons -> Nothing) =
+      True
+    go n maxSizeTiering (V.uncons -> Just (Level runs, nextLevels)) =
+      case mergePolicyForLevel (confMergePolicy config) n nextLevels of
+        LevelTiering ->
+             V.length runs < sizeRatioInt (confSizeRatio config)
+          && and [runSize r <= maxSizeTiering | r <- runs]
+        LevelLevelling ->
+             V.
+-}
