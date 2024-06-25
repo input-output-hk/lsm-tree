@@ -50,6 +50,9 @@ module Database.LSMTree.Internal (
   , WriteBufferAlloc (..)
   , NumEntries (..)
   , BloomFilterAlloc (..)
+    -- * Exported for cabal-docspec
+  , MergePolicyForLevel (..)
+  , maxRunSize
   ) where
 
 import           Control.Concurrent.Class.MonadMVar.Strict
