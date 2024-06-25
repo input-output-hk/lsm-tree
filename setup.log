@@ -1,0 +1,34 @@
+Resolving dependencies...
+Build profile: -w ghc-9.6.5 -O1
+In order, the following will be built (use -v for more details):
+ - lsm-tree-0.1.0.0 (lib:fs-api-blockio) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib:kmerge) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib:mcg) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib:xxhash) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib:bloomfilter) (configuration changed)
+ - lsm-tree-0.1.0.0 (lib) (configuration changed)
+ - lsm-tree-0.1.0.0 (bench:lsm-tree-bench-wp8) (configuration changed)
+Configuring library 'fs-api-blockio' for lsm-tree-0.1.0.0..
+Configuring library 'kmerge' for lsm-tree-0.1.0.0..
+Configuring library 'mcg' for lsm-tree-0.1.0.0..
+Configuring library 'xxhash' for lsm-tree-0.1.0.0..
+Preprocessing library 'kmerge' for lsm-tree-0.1.0.0..
+Building library 'kmerge' for lsm-tree-0.1.0.0..
+Preprocessing library 'fs-api-blockio' for lsm-tree-0.1.0.0..
+Building library 'fs-api-blockio' for lsm-tree-0.1.0.0..
+Preprocessing library 'mcg' for lsm-tree-0.1.0.0..
+Building library 'mcg' for lsm-tree-0.1.0.0..
+Preprocessing library 'xxhash' for lsm-tree-0.1.0.0..
+Building library 'xxhash' for lsm-tree-0.1.0.0..
+Configuring library 'bloomfilter' for lsm-tree-0.1.0.0..
+Preprocessing library 'bloomfilter' for lsm-tree-0.1.0.0..
+Building library 'bloomfilter' for lsm-tree-0.1.0.0..
+Configuring library for lsm-tree-0.1.0.0..
+Preprocessing library for lsm-tree-0.1.0.0..
+Building library for lsm-tree-0.1.0.0..
+Configuring benchmark 'lsm-tree-bench-wp8' for lsm-tree-0.1.0.0..
+Preprocessing benchmark 'lsm-tree-bench-wp8' for lsm-tree-0.1.0.0..
+Building benchmark 'lsm-tree-bench-wp8' for lsm-tree-0.1.0.0..
+GlobalOpts {rootDir = "_bench_session", initialSize = 100000000}
+CmdSetup SetupOpts
+.................................................................................

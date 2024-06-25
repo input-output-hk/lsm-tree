@@ -1,0 +1,7 @@
+Resolving dependencies...
+GlobalOpts {rootDir = "_bench_session", initialSize = 100000000}
+CmdDryRun (RunOpts {batchCount = 200000, batchSize = 256, check = True, seed = 1337})
+Probability of a duplicate:                            1.0
+Expected number of duplicates (extreme upper bound): 20516055.512959752 out of 51200000.0
+True duplicates: 0
+Batch generation: 155.971 sec
