@@ -63,6 +63,7 @@ import qualified System.FS.API as FS
 import qualified System.FS.BlockIO.API as FS
 import qualified System.FS.BlockIO.IO as FsIO
 import qualified System.FS.IO as FsIO
+import           System.IO
 import           Text.Printf (printf)
 
 -- We should be able to write this benchmark
@@ -200,6 +201,8 @@ doSetup gopts _opts = do
         tbh <- LSM.new @IO @K @V @B session defaultTableConfig
 
         forM_ [ 0 .. gopts.initialSize ] $ \ (fromIntegral -> i) -> do
+            when (i `mod` progress == 0) $ putChar '.'
+
             -- TODO: this procedure simply inserts all the keys into initial lsm tree
             -- We might want to do deletes, so there would be delete-insert pairs
             -- Let's do that when we can actually test that benchmark works.
@@ -212,6 +215,8 @@ doSetup gopts _opts = do
               V.singleton (k, v, Nothing)
 
         LSM.snapshot name tbh
+  where
+    progress = fromIntegral gopts.initialSize `div` 80
 
 -------------------------------------------------------------------------------
 -- dry-run
@@ -355,7 +360,7 @@ doRun' gopts opts = do
         -- open snapshot
         tbl <- LSM.open @IO @K @V @B session name
 
-        void $ forFoldM_ initGen [ 0 .. opts.batchCount - 1 ] $ \b g -> do
+        time <- timed_ $ void $ forFoldM_ initGen [ 0 .. opts.batchCount - 1 ] $ \b g -> do
             let lookups :: [Word64]
                 inserts :: [Word64]
                 (!nextG, lookups, inserts) = generateBatch gopts.initialSize opts.batchSize g b
@@ -363,13 +368,17 @@ doRun' gopts opts = do
             let (batch1, batch2) = toOperations lookups inserts
 
             -- lookups
-            _ <- LSM.lookups (V.fromList batch1) tbl -- TODO: use vectors directly, update the RocksDB benchmark
+            _xs <- LSM.lookups (V.fromList batch1) tbl -- TODO: use vectors directly, update the RocksDB benchmark
+
+            -- let notFounds :: Int = V.sum $ V.map (\lr -> case lr of LSM.NotFound -> 1; _ -> 0) xs
+            -- unless (notFounds == 0) $ print (printf "WARNING: %d failed lookups out of %d!" notFounds (V.length xs) :: String)
 
             -- deletes and inserts
             LSM.updates (V.fromList batch2) tbl -- TODO: use vectors directly, update the RocksDB benchmark
 
             -- continue to the next batch
             return nextG
+        printf "Properer run: %.03f sec\n" time
 
 -------------------------------------------------------------------------------
 -- main
@@ -377,6 +386,7 @@ doRun' gopts opts = do
 
 main :: IO ()
 main = do
+    hSetBuffering stdout NoBuffering
     (gopts, cmd) <- O.customExecParser prefs cliP
     print gopts
     print cmd
