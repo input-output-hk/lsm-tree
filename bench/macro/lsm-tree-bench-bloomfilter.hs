@@ -2,9 +2,7 @@
 {-# LANGUAGE CPP                #-}
 {-# LANGUAGE NumericUnderscores #-}
 
-module Bench.Database.LSMTree.Internal.BloomFilter (
-    benchmarks
-  ) where
+module Main ( main ) where
 
 import           Control.Exception (evaluate)
 import           Control.Monad
@@ -23,6 +21,7 @@ import           Data.WideWord.Word256 (Word256)
 import           Data.Word (Word64)
 import           GHC.Stats
 import           Numeric
+import           System.IO
 import           System.Mem (performMajorGC)
 import           System.Random
 import           Text.Printf (printf)
@@ -32,6 +31,10 @@ import           Database.LSMTree.Internal.Monkey as Monkey
 import           Database.LSMTree.Internal.Serialise (SerialisedKey,
                      serialiseKey)
 
+main :: IO ()
+main = do
+  hSetBuffering stdout NoBuffering
+  benchmarks
 
 -- Benchmark parameters you can tweak. The defaults are rather small, so the
 -- runtime is short and do not show the effects of data sizes no longer fitting

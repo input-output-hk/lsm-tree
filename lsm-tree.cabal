@@ -342,14 +342,37 @@ benchmark lsm-tree-micro-bench
 
   ghc-options:    -rtsopts -with-rtsopts=-T -threaded
 
-benchmark lsm-tree-macro-bench
+benchmark lsm-tree-bench-bloomfilter
   import:         language, warnings, wno-x-partial
   type:           exitcode-stdio-1.0
   hs-source-dirs: bench/macro src-extras
-  main-is:        Main.hs
+  main-is:        lsm-tree-bench-bloomfilter.hs
   other-modules:
-    Bench.Database.LSMTree.Internal.BloomFilter
-    Bench.Database.LSMTree.Internal.Lookup
+    Database.LSMTree.Extras.Orphans
+    Database.LSMTree.Extras.UTxO
+
+  build-depends:
+    , base
+    , bytestring
+    , deepseq
+    , fs-api
+    , lsm-tree
+    , lsm-tree:bloomfilter
+    , primitive
+    , QuickCheck
+    , random
+    , time
+    , vector
+    , wide-word
+
+  ghc-options:    -rtsopts -with-rtsopts=-T -threaded
+
+benchmark lsm-tree-bench-lookups
+  import:         language, warnings, wno-x-partial
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: bench/macro src-extras
+  main-is:        lsm-tree-bench-lookups.hs
+  other-modules:
     Database.LSMTree.Extras.Orphans
     Database.LSMTree.Extras.UTxO
 

@@ -1,8 +1,6 @@
 {-# LANGUAGE CPP #-}
 
-module Bench.Database.LSMTree.Internal.Lookup (
-    benchmarks
-  ) where
+module Main ( main ) where
 
 import           Control.DeepSeq
 import           Control.Exception (assert)
@@ -37,14 +35,30 @@ import           Database.LSMTree.Internal.Serialise (SerialisedKey,
 import           Debug.Trace (traceMarkerIO)
 import           GHC.Stats
 import           Numeric
+import           System.Environment (getArgs)
+import           System.Exit (exitFailure)
 import qualified System.FS.API as FS
 import qualified System.FS.BlockIO.API as FS
 import qualified System.FS.BlockIO.IO as FS
 import qualified System.FS.IO as FS
+import           System.IO
 import           System.IO.Temp
 import           System.IO.Unsafe (unsafePerformIO)
 import           System.Mem (performMajorGC)
 import           System.Random
+
+main :: IO ()
+main = do
+  hSetBuffering stdout NoBuffering
+  args <- getArgs
+  case args of
+    [] ->
+      benchmarks Nothing
+    [arg] | let !dir = read ("\"" <> arg <> "\"") ->
+      benchmarks (Just dir)
+    _     -> do
+      putStrLn "Wrong usage, pass in no arguments or an optional filepath."
+      exitFailure
 
 -- | The number of entries in the smallest LSM runs is @2^benchmarkSizeBase@.
 --
