@@ -30,7 +30,7 @@ benchmarks: True
 constraints: bloomfilter <0
 
 -- comment me if you are benchmarking
-import: cabal.project.debug
+-- import: cabal.project.debug
 
 -- comment me if you don't have liburing installed
 --
