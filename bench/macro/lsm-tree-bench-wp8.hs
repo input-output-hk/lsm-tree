@@ -252,19 +252,19 @@ doDryRun' gopts opts = do
     duplicateRef <- newIORef (0 :: Int)
 
     void $ forFoldM_ initGen [ 0 .. opts.batchCount - 1 ] $ \b g -> do
-        let lookups :: [Word64]
-            inserts :: [Word64]
+        let lookups :: V.Vector Word64
+            inserts :: V.Vector Word64
             (!nextG, lookups, inserts) = generateBatch gopts.initialSize opts.batchSize g b
 
         when opts.check $ do
             keys <- readIORef keysRef
-            let new  = IS.fromList $ map fromIntegral lookups
+            let new  = V.foldl' (\acc x -> IS.insert (fromIntegral x) acc) IS.empty lookups
             let diff = IS.difference new keys
             -- when (IS.notNull diff) $ printf "missing in batch %d %s\n" b (show diff)
             modifyIORef' duplicateRef $ \n -> n + IS.size diff
             writeIORef keysRef $! IS.union
                 (IS.difference keys new)
-                (IS.fromList $ map fromIntegral inserts)
+                (V.foldl' (\acc x -> IS.insert (fromIntegral x) acc) IS.empty inserts)
 
         let (batch1, batch2) = toOperations lookups inserts
         _ <- evaluate $ force (batch1, batch2)
@@ -295,33 +295,28 @@ generateBatch
     -> Int       -- ^ batch size
     -> MCG.MCG   -- ^ generator
     -> Int       -- ^ batch number
-    -> (MCG.MCG, [Word64], [Word64])
+    -> (MCG.MCG, V.Vector Word64, V.Vector Word64)
 generateBatch initialSize batchSize g b = (nextG, lookups, inserts)
   where
     maxK :: Word64
     maxK = fromIntegral $ initialSize + batchSize * b
 
-    lookups :: [Word64]
-    (!nextG, lookups) = mapAccumL (\g' _ -> swap (MCG.reject maxK g')) g [1 .. batchSize]
+    lookups :: V.Vector Word64
+    (!nextG, lookups) = mapAccumL (\g' _ -> swap (MCG.reject maxK g')) g (V.enumFromTo 1 batchSize)
 
-    inserts :: [Word64]
-    inserts = [ maxK .. maxK + fromIntegral batchSize - 1 ]
+    inserts :: V.Vector Word64
+    inserts = V.enumFromTo maxK (maxK + fromIntegral batchSize - 1)
 
 -- | Generate operation inputs
-toOperations :: [Word64] -> [Word64] -> ([K], [(K, LSM.Update V B)])
+toOperations :: V.Vector Word64 -> V.Vector Word64 -> (V.Vector K, V.Vector (K, LSM.Update V B))
 toOperations lookups inserts = (batch1, batch2)
   where
-    batch1 :: [K]
-    batch1 = map makeKey lookups
+    batch1 :: V.Vector K
+    batch1 = V.map makeKey lookups
 
-    batch2 :: [(K, LSM.Update V B)]
-    batch2 =
-        [ (k, LSM.Delete)
-        | k <- batch1
-        ] ++
-        [ (makeKey k, LSM.Insert theValue Nothing)
-        | k <- inserts
-        ]
+    batch2 :: V.Vector (K, LSM.Update V B)
+    batch2 = V.map (\k -> (k, LSM.Delete)) batch1 V.++
+             V.map (\k -> (makeKey k, LSM.Insert theValue Nothing)) inserts
 
 -------------------------------------------------------------------------------
 -- run
@@ -356,17 +351,17 @@ doRun' gopts opts = do
         tbl <- LSM.open @IO @K @V @B session name
 
         void $ forFoldM_ initGen [ 0 .. opts.batchCount - 1 ] $ \b g -> do
-            let lookups :: [Word64]
-                inserts :: [Word64]
+            let lookups :: V.Vector Word64
+                inserts :: V.Vector Word64
                 (!nextG, lookups, inserts) = generateBatch gopts.initialSize opts.batchSize g b
 
             let (batch1, batch2) = toOperations lookups inserts
 
             -- lookups
-            _ <- LSM.lookups (V.fromList batch1) tbl -- TODO: use vectors directly, update the RocksDB benchmark
+            _ <- LSM.lookups batch1 tbl -- TODO: use vectors directly, update the RocksDB benchmark
 
             -- deletes and inserts
-            LSM.updates (V.fromList batch2) tbl -- TODO: use vectors directly, update the RocksDB benchmark
+            LSM.updates batch2 tbl -- TODO: use vectors directly, update the RocksDB benchmark
 
             -- continue to the next batch
             return nextG
