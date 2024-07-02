@@ -1,0 +1,29 @@
+GlobalOpts {rootDir = "_bench_session", initialSize = 100000000}
+CmdDryRun (RunOpts {batchCount = 200000, batchSize = 256, check = True, seed = 1337})
+Probability of a duplicate:                            1.0
+Expected number of duplicates (extreme upper bound): 20516055.512959752 out of 51200000.0
+True duplicates: 0
+Batch generation: 144.809 sec
+	Command being timed: "./dist-newstyle/build/x86_64-linux/ghc-9.6.5/lsm-tree-0.1.0.0/b/lsm-tree-bench-wp8/build/lsm-tree-bench-wp8/lsm-tree-bench-wp8 dry-run --batch-count 200000 --check"
+	User time (seconds): 144.82
+	System time (seconds): 0.37
+	Percent of CPU this job got: 100%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:24.85
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 471040
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 116252
+	Voluntary context switches: 14500
+	Involuntary context switches: 717
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
